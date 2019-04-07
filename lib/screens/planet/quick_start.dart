@@ -24,7 +24,7 @@ class QuickStart extends StatelessWidget {
       ),
       body: WebView(
         initialUrl: "https://h5.91xungou.com/#/howtouse",
-        javaScriptMode: JavaScriptMode.unrestricted, // 默认关闭 要打开
+        // javaScriptMode: JavaScriptMode.unrestricted, // 默认关闭 要打开
         onWebViewCreated: (_) {
           // print("test");
         },

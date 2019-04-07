@@ -122,8 +122,8 @@ class LostDetailState extends State<LostDetail> {
                           itemBuilder: (BuildContext context, int index) {
                             return CachedNetworkImage(
                               imageUrl: dog.pic[index].link,
-                              placeholder: CupertinoActivityIndicator(),
-                              errorWidget: Icon(Icons.error),
+                              //placeholder: CupertinoActivityIndicator(),
+                              //errorWidget: Icon(Icons.error),
                               fit: BoxFit.contain,
                             );
                           },

@@ -76,9 +76,9 @@ class LostMap extends StatelessWidget {
           Container(
             child: CachedNetworkImage(
               imageUrl:
-                  "https://restapi.amap.com/v3/staticmap?location=$locationLongitude,$locationLatitude&zoom=15&size=600*600&markers=large,,A:$locationLongitude,$locationLatitude&key=xxxxxxxxxxxxx",
-              placeholder: CupertinoActivityIndicator(),
-              errorWidget: Icon(Icons.error),
+                  "https://restapi.amap.com/v3/staticmap?location=$locationLongitude,$locationLatitude&zoom=15&size=600*600&markers=large,,A:$locationLongitude,$locationLatitude&key=xxxxxxxxxx",
+              placeholder: (context, url) => CupertinoActivityIndicator(),
+              errorWidget: (context, url, error) => Icon(Icons.error),
             ),
             padding: EdgeInsets.symmetric(horizontal: 40.0),
           )

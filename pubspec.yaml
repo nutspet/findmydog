@@ -22,27 +22,29 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^0.1.2
   # ios风格picker
-  flutter_picker: ^1.0.2
+  flutter_picker: ^1.0.10
   # dio
-  dio: ^1.0.6
+  dio: ^2.1.0
   # 国产swiper
-  flutter_swiper: ^1.1.4
+  flutter_swiper: ^1.1.6
   # 缓存图片 官方推荐
-  cached_network_image: ^0.5.0+1
+  cached_network_image: ^0.7.0
   # 这个必须要 缓存图片用
-  path_provider: ^0.4.1
+  path_provider: ^0.5.0+1
   # 日期要用 表单里
-  intl: ^0.15.7
+  intl: ^0.15.8
   # 设备id
-  flutter_udid: ^0.0.3
+  flutter_udid: ^1.0.0
   # 图片选择器
-  image_picker: ^0.4.10
+  image_picker: ^0.5.2
   # 地理位置
-  geolocator: ^2.1.1
+  geolocator: ^3.0.1
   # 官方webview
-  webview_flutter: ^0.0.1+1
+  webview_flutter: ^0.3.5+3
   # 微信分享
-  fluwx: ^0.5.2
+  fluwx: ^0.6.1
+  # 高级版本高德地图
+  amap_base: ^0.3.4
   # badge
   # badge: ^0.0.3
 

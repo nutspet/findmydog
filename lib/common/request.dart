@@ -31,20 +31,22 @@ class Request {
 
   // 命名构造函数，初始化。
   Request._internal() {
+    // 190409在这里修改baseurl
+    _dio.options.baseUrl = baseUrl;
     _dio.options.connectTimeout = CONNECT_TIMEOUT;
     _dio.options.receiveTimeout = RECEIVE_TIMEOUT;
-    // 拦截器 给jwt用的
-    _dio.interceptor.request.onSend = (Options options) {
+    // 拦截器 给jwt用的 过期了 要看手册用新写法
+    //_dio.interceptor.request.onSend = (Options options) {
       // options.headers["KOBE"] = "JWT";
 
       // 在请求被发送之前做一些事情
-      return options; //continue
+      //return options; //continue
       // 如果你想完成请求并返回一些自定义数据，可以返回一个`Response`对象或返回`dio.resolve(data)`。
       // 这样请求将会被终止，上层then会被调用，then中返回的数据将是你的自定义数据data.
       //
       // 如果你想终止请求并触发一个错误,你可以返回一个`DioError`对象，或返回`dio.reject(errMsg)`，
       // 这样请求将被中止并触发异常，上层catchError会被调用。
-    };
+    //};
   }
   // 保存jwt
   void _saveJwt(String token) {
@@ -84,7 +86,7 @@ class Request {
     // 初始化，默认get，以及baseurl。
     Options options = new Options(
       method: method,
-      baseUrl: baseUrl,
+      // baseUrl: baseUrl,
     );
     if (auth) {
       // 等待登录成功

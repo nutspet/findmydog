@@ -323,8 +323,8 @@ class LostListState extends State<LostList>
           child: list[index].pic.isNotEmpty
               ? CachedNetworkImage(
                   imageUrl: "${list[index].pic[0].link}$_listImgSuffix",
-                  placeholder: CupertinoActivityIndicator(),
-                  errorWidget: Icon(Icons.error),
+                  placeholder: (context, url) => CupertinoActivityIndicator(),
+                  errorWidget: (context, url, error) => Icon(Icons.error),
                 )
               : FlutterLogo(),
         ),
