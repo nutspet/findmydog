@@ -80,7 +80,7 @@ class Request {
       CompleteHandler complete,
       String method = "GET",
       bool auth = false,
-      dynamic data,
+      Map<String, dynamic> data,
       CancelToken cancelToken}) async {
     // print(data);
     // 初始化，默认get，以及baseurl。
@@ -102,7 +102,7 @@ class Request {
     // 执行请求
     try {
       Response response = await _dio.request(uri,
-          data: data, options: options, cancelToken: cancelToken);
+          queryParameters: data, options: options, cancelToken: cancelToken);
 
       // 如果api返回http code 403就是未授权
       if (response.statusCode == HttpStatus.forbidden) {
