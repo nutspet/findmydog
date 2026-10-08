@@ -61,8 +61,16 @@ dependencies:
   stream_transform: ^2.1.2
   # 值相等语义（state / event 的比较基础），3.x 起不再自动比较 runtimeType
   equatable: ^3.0.0
-  # 备注：已移除 amap_base —— 代码中从未 import 且该包已停止维护；
-  # 高德地图实际是通过 HTTP 静态图/地理编码接口在使用（见 map.dart / report.dart）。
+  # ===== 地图（替换高德的 staticmap / geocode HTTP 接口）=====
+  # 纯 Dart 实现的瓦片地图，无 platform view，不需要地图 SDK、不需要原生注册；
+  # 底图用天地图（见 lib/common/tianditu.dart，tk 在 lib/common/constants.dart）。
+  flutter_map: ^8.3.2
+  # flutter_map 的经纬度类型。独立拆包，很多地图相关代码只依赖它。
+  latlong2: ^0.10.1
+  # 备注：已移除 amap_base —— 代码中从未 import 且该包已停止维护。
+  # 原先实际用的是高德两个 HTTP 接口，现已全部换成天地图：
+  #   * 静态图 restapi.amap.com/v3/staticmap  → flutter_map + 天地图矢量瓦片（map.dart）
+  #   * 地理编码 restapi.amap.com/v3/geocode/geo → 天地图 geocoder（report.dart）
   # 已移除 path_provider —— 代码中无直接引用（cached_network_image 缓存栈会间接引入）。
 
 dev_dependencies:
