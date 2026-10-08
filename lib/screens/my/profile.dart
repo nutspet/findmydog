@@ -1,18 +1,20 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:find_dog/models/profile.dart';
 import 'package:flutter/services.dart';
-import 'package:find_dog/utils/validate.dart';
 import 'package:intl/intl.dart';
 import 'package:find_dog/common/request.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:dio/dio.dart';
+import 'package:find_dog/models/profile.dart';
+import 'package:find_dog/utils/validate.dart';
 
 class MyProfile extends StatefulWidget {
   final Profile profile;
+
   // 构造传递进来 扔给state
-  MyProfile({@required this.profile});
+  const MyProfile({super.key, required this.profile});
+
   @override
-  MyProfileState createState() => new MyProfileState();
+  MyProfileState createState() => MyProfileState();
 }
 
 class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
@@ -26,8 +28,8 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
 
   // 默认倒计时秒
   static const int verifySmsCountDownSeconds = 30;
-  // 倒计时控制器
-  AnimationController _controller;
+  // 倒计时控制器（initState 里初始化，所以用 late）
+  late AnimationController _controller;
   // 是否能发送短消息
   bool sendAble = true;
 
@@ -36,7 +38,7 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
   DateTime birthday = DateTime.parse("1990-01-01");
   bool gender = false;
   bool mobileVerify = false;
-  String verifyCode;
+  String verifyCode = '';
 
   // 是否表单修改过
   bool _formChanged = false;
@@ -45,14 +47,18 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
 
   // snackbar 提示
   void showInSnackBar(String value) {
-    _scaffoldKey.currentState.showSnackBar(SnackBar(content: Text(value)));
+    // ScaffoldState.showSnackBar 已在 Flutter 3.x 中移除，改用 ScaffoldMessenger。
+    // mounted 判断用于替代旧写法里 `?.` 的空安全保护：异步回调返回时页面可能已销毁。
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
 
   // 发送验证码
   void _sendVerify() {
+    final FormFieldState<String>? mobileState = _mobileKey.currentState;
     // 如果手机号码合法
-    if (_mobileKey.currentState.validate()) {
-      _mobileKey.currentState.save();
+    if (mobileState != null && mobileState.validate()) {
+      mobileState.save();
       Request api = Request();
       api.req("/my/send_verify2", data: {"mobile": mobile}, auth: true,
           success: (res) {
@@ -66,7 +72,8 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
 
   // 提交表单
   void _handleSubmitted() async {
-    final FormState form = _formKey.currentState;
+    final FormState? form = _formKey.currentState;
+    if (form == null) return;
     if (!form.validate()) {
       _autoValidate = true; // Start validating on every change.
       showInSnackBar('请修正表单错误项！');
@@ -77,7 +84,7 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
         context: context,
         barrierDismissible: false,
         builder: (_) {
-          return Dialog(
+          return const Dialog(
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 30.0),
               child: Column(
@@ -92,15 +99,14 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
         },
       );
       // 提交逻辑在这里处理 头像avatar没有传
-      Map<String, dynamic> params = new Map();
+      Map<String, dynamic> params = <String, dynamic>{};
       params['name'] = name;
       params['mobile'] = mobile;
       params['vcode'] = verifyCode;
       params['birthDay'] = DateFormat("yyyy-MM-dd").format(birthday);
       params['gender'] = gender ? 1 : 0;
-      ;
       print(params);
-      FormData formData = new FormData.from(params);
+      FormData formData = FormData.fromMap(params);
       Request api = Request();
       api.req('/my/update_profile2', auth: true, method: 'POST', data: formData,
           success: (res) {
@@ -119,7 +125,7 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
 
   // 用户离开提示
   Future<bool> _warnUserAboutInvalidData() async {
-    final FormState form = _formKey.currentState;
+    final FormState? form = _formKey.currentState;
 
     if (form == null || !_formChanged) return true;
 
@@ -130,13 +136,13 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
               title: const Text('尚未完成！'),
               content: const Text('确认离开表单？'),
               actions: <Widget>[
-                FlatButton(
+                TextButton(
                   child: const Text('是'),
                   onPressed: () {
                     Navigator.of(context).pop(true);
                   },
                 ),
-                FlatButton(
+                TextButton(
                   child: const Text('否'),
                   onPressed: () {
                     Navigator.of(context).pop(false);
@@ -155,13 +161,13 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
     name = widget.profile.name;
     mobileVerify = widget.profile.mobileVerify;
     gender = widget.profile.genderRaw;
-    if (widget.profile.birthDay != null) {
+    if (widget.profile.birthDay.isNotEmpty) {
       birthday = DateTime.parse(widget.profile.birthDay);
     }
     // 倒计时控制器初始化
-    _controller = new AnimationController(
+    _controller = AnimationController(
       vsync: this,
-      duration: new Duration(seconds: verifySmsCountDownSeconds),
+      duration: const Duration(seconds: verifySmsCountDownSeconds),
     );
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
@@ -188,28 +194,39 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: Color(0xfff8f8f8),
+      backgroundColor: const Color(0xfff8f8f8),
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           "用户资料",
           style: TextStyle(fontSize: 16.0, color: Colors.white),
         ),
         elevation: 0.0,
         centerTitle: true,
-        brightness: Brightness.dark,
+        // AppBar.brightness 已被移除，等价写法是设置状态栏图标风格
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         backgroundColor: Colors.blue,
       ),
       body: Form(
           key: _formKey,
-          autovalidate: _autoValidate,
-          onWillPop: _warnUserAboutInvalidData,
+          // onWillPop 已废弃，改用 canPop + onPopInvokedWithResult
+          canPop: false,
+          onPopInvokedWithResult: (bool didPop, Object? result) async {
+            if (didPop) return;
+            final bool canPop = await _warnUserAboutInvalidData();
+            if (canPop && context.mounted) {
+              Navigator.of(context).pop();
+            }
+          },
+          autovalidateMode: _autoValidate
+              ? AutovalidateMode.always
+              : AutovalidateMode.disabled,
           onChanged: () {
             _formChanged = true;
-            final FormState form = _formKey.currentState;
-            form.save();
+            final FormState? form = _formKey.currentState;
+            form?.save();
           },
           child: Padding(
-            padding: EdgeInsets.symmetric(
+            padding: const EdgeInsets.symmetric(
               vertical: 20.0,
               horizontal: 30.0,
             ),
@@ -218,7 +235,7 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                 TextFormField(
                   textCapitalization: TextCapitalization.words,
                   initialValue: name,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     isDense: true,
                     border: UnderlineInputBorder(),
                     icon: Icon(
@@ -228,12 +245,12 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                     hintText: '希望他人如何称呼您',
                     labelText: '昵称',
                   ),
-                  validator: (String value) {
-                    if (value.isEmpty) return '昵称不能为空！';
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) return '昵称不能为空！';
                     return null;
                   },
-                  onSaved: (value) {
-                    name = value;
+                  onSaved: (String? value) {
+                    name = value ?? '';
                   },
                 ),
                 const SizedBox(height: 10.0),
@@ -250,7 +267,8 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<bool>(
                       value: gender,
-                      onChanged: (bool newValue) {
+                      onChanged: (bool? newValue) {
+                        if (newValue == null) return;
                         setState(() {
                           gender = newValue;
                         });
@@ -260,8 +278,8 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                         return DropdownMenuItem<bool>(
                           value: key,
                           child: Text(
-                            Profile.UserGender[key],
-                            style: TextStyle(fontSize: 14.0),
+                            Profile.UserGender[key] ?? '',
+                            style: const TextStyle(fontSize: 14.0),
                           ),
                         );
                       }).toList(),
@@ -272,9 +290,10 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                   height: 10.0,
                 ),
                 Theme(
+                    // TextTheme 的 display1 已废弃，对应新名 headlineMedium
                     data: Theme.of(context).copyWith(
-                        primaryTextTheme:
-                            TextTheme(display1: TextStyle(fontSize: 24.0))),
+                        primaryTextTheme: const TextTheme(
+                            headlineMedium: TextStyle(fontSize: 24.0))),
                     child: Builder(
                         builder: (context) => InkWell(
                               child: InputDecorator(
@@ -292,14 +311,16 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                                 ),
                               ),
                               onTap: () async {
-                                DateTime picked = await showDatePicker(
+                                DateTime? picked = await showDatePicker(
                                     context: context,
-                                    locale: Locale('zh', 'CH'),
+                                    locale: const Locale('zh', 'CH'),
                                     initialDate: birthday,
                                     firstDate: DateTime(1900, 1),
                                     lastDate: DateTime.now());
                                 if (picked != null && picked != birthday) {
                                   setState(() {
+                                    // picked 已被上面的 != null 提升为 DateTime，
+                                    // 无需再用 `!`
                                     birthday = picked;
                                   });
                                 }
@@ -311,20 +332,20 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                     : TextFormField(
                         decoration: InputDecoration(
                           isDense: true,
-                          border: UnderlineInputBorder(),
-                          suffixIcon: FlatButton(
+                          border: const UnderlineInputBorder(),
+                          suffixIcon: TextButton(
                             onPressed: sendAble ? _sendVerify : null,
                             child: sendAble
-                                ? Text("验证码")
-                                : new CountDown(
-                                    animation: new StepTween(
+                                ? const Text("验证码")
+                                : CountDown(
+                                    animation: StepTween(
                                             begin:
                                                 verifySmsCountDownSeconds + 1,
                                             end: 1)
                                         .animate(_controller),
                                   ),
                           ),
-                          icon: Icon(
+                          icon: const Icon(
                             Icons.phone,
                             size: 24.0,
                           ),
@@ -335,13 +356,13 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                         key: _mobileKey,
                         keyboardType: TextInputType.phone,
                         inputFormatters: [
-                          WhitelistingTextInputFormatter.digitsOnly
+                          FilteringTextInputFormatter.digitsOnly
                         ],
-                        validator: (String value) {
-                          return Validate.phone(value);
+                        validator: (String? value) {
+                          return Validate.phone(value ?? '');
                         },
-                        onSaved: (value) {
-                          mobile = value;
+                        onSaved: (String? value) {
+                          mobile = value ?? '';
                         },
                         initialValue: mobile,
                       ),
@@ -349,7 +370,7 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                 mobileVerify
                     ? Container()
                     : TextFormField(
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           isDense: true,
                           border: UnderlineInputBorder(),
                           icon: Icon(
@@ -361,34 +382,38 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
                         ),
                         keyboardType: TextInputType.number,
                         inputFormatters: [
-                          WhitelistingTextInputFormatter.digitsOnly
+                          FilteringTextInputFormatter.digitsOnly
                         ],
-                        validator: (String value) {
-                          if (value.length != 4) return '验证码长度不对';
+                        validator: (String? value) {
+                          if (value == null || value.length != 4) {
+                            return '验证码长度不对';
+                          }
                           return null;
                         },
-                        onSaved: (value) {
-                          verifyCode = value;
+                        onSaved: (String? value) {
+                          verifyCode = value ?? '';
                         },
                       ),
                 const SizedBox(height: 30.0),
                 Container(
-                  child: RaisedButton.icon(
-                    onPressed: _handleSubmitted,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(5.0)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).primaryColor,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(5.0)),
+                      ),
                     ),
-                    icon: Icon(
+                    onPressed: _handleSubmitted,
+                    icon: const Icon(
                       Icons.save,
                       color: Colors.white,
                     ),
-                    label: Text(
+                    label: const Text(
                       "更新个人资料",
                       style: TextStyle(color: Colors.white),
                     ),
-                    color: Theme.of(context).primaryColor,
                   ),
-                  padding: EdgeInsets.symmetric(horizontal: 20.0),
                 ),
               ]),
             ),
@@ -399,12 +424,13 @@ class MyProfileState extends State<MyProfile> with TickerProviderStateMixin {
 
 // 倒计时控件
 class CountDown extends AnimatedWidget {
-  CountDown({Key key, this.animation}) : super(key: key, listenable: animation);
+  const CountDown({super.key, required this.animation})
+      : super(listenable: animation);
   final Animation<int> animation;
 
   @override
-  build(BuildContext context) {
-    return new Text(
+  Widget build(BuildContext context) {
+    return Text(
       "${animation.value}秒",
       //style: new TextStyle(fontSize: 150.0),
     );

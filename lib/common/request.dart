@@ -1,15 +1,17 @@
-import 'package:dio/dio.dart';
 import 'dart:io';
-import 'login.dart';
+
+import 'package:dio/dio.dart';
+
 import 'basis.dart';
+import 'login.dart';
 
 // 远程请求对象，单例模式。
 // 封装好dio的拦截器，可以用到jwt。
 class Request {
-  // 连接超时
-  static const num CONNECT_TIMEOUT = 10000;
+  // 连接超时（dio 5 起超时统一用 Duration）
+  static const Duration CONNECT_TIMEOUT = Duration(milliseconds: 10000);
   // 接受超时
-  static const num RECEIVE_TIMEOUT = 10000;
+  static const Duration RECEIVE_TIMEOUT = Duration(milliseconds: 10000);
   // JWT的TOKEN
   static const String JWT_REQUEST_HEADER = "kobe";
   // JWT的REMEMBER
@@ -17,10 +19,10 @@ class Request {
   // base URl 例如：https://api.91xungou.com
   static String baseUrl = "";
   // dio 实例
-  final Dio _dio = new Dio();
+  final Dio _dio = Dio();
 
-  // 错误handler
-  FailHandler errorHandler;
+  // 错误handler（没有设置时走默认抛异常）
+  FailHandler? errorHandler;
 
   // 初始化，dart在静态变量读取的时候实例化，实际只有一个实例。
   static final Request _singleton = Request._internal();
@@ -36,18 +38,8 @@ class Request {
     _dio.options.connectTimeout = CONNECT_TIMEOUT;
     _dio.options.receiveTimeout = RECEIVE_TIMEOUT;
     // 拦截器 给jwt用的 过期了 要看手册用新写法
-    //_dio.interceptor.request.onSend = (Options options) {
-      // options.headers["KOBE"] = "JWT";
-
-      // 在请求被发送之前做一些事情
-      //return options; //continue
-      // 如果你想完成请求并返回一些自定义数据，可以返回一个`Response`对象或返回`dio.resolve(data)`。
-      // 这样请求将会被终止，上层then会被调用，then中返回的数据将是你的自定义数据data.
-      //
-      // 如果你想终止请求并触发一个错误,你可以返回一个`DioError`对象，或返回`dio.reject(errMsg)`，
-      // 这样请求将被中止并触发异常，上层catchError会被调用。
-    //};
   }
+
   // 保存jwt
   void _saveJwt(String token) {
     // 如果是经过jwt的成功请求 存起来
@@ -61,9 +53,10 @@ class Request {
   }
 
   void _handleError(String message) {
-    if (errorHandler != null) {
+    final FailHandler? handler = errorHandler;
+    if (handler != null) {
       // 全局的有就接住
-      errorHandler(message);
+      handler(message);
     } else {
       // 默认直接扔出去
       throw RequestError(message: message);
@@ -74,35 +67,40 @@ class Request {
   Dio getDio() => _dio;
 
   // 发送请求，默认GET，所有返回在回调中处理。
+  // [data] 允许传 Map（走 query，对应 GET）或 FormData（走 body，对应 POST 上传）。
   Future<void> req<T>(String uri,
-      {SuccessHandler success,
-      FailHandler fail,
-      CompleteHandler complete,
+      {SuccessHandler? success,
+      FailHandler? fail,
+      CompleteHandler? complete,
       String method = "GET",
       bool auth = false,
-      Map<String, dynamic> data,
-      CancelToken cancelToken}) async {
-    // print(data);
+      Object? data,
+      CancelToken? cancelToken}) async {
     // 初始化，默认get，以及baseurl。
-    Options options = new Options(
+    Options options = Options(
       method: method,
-      // baseUrl: baseUrl,
     );
     if (auth) {
       // 等待登录成功
       await Login().status;
       // 如果是身份验证的 加上头部
       String token = _loadJwt();
-      options.headers[JWT_REQUEST_HEADER] = token;
+      options.headers = {JWT_REQUEST_HEADER: token};
     }
 
     // 绑定fail作为errorHandler
     errorHandler = fail;
 
+    // FormData（表单/文件上传）必须放进请求体，普通 Map 作为 query 参数。
+    final bool isFormData = data is FormData;
+
     // 执行请求
     try {
       Response response = await _dio.request(uri,
-          queryParameters: data, options: options, cancelToken: cancelToken);
+          data: isFormData ? data : null,
+          queryParameters: isFormData ? null : data as Map<String, dynamic>?,
+          options: options,
+          cancelToken: cancelToken);
 
       // 如果api返回http code 403就是未授权
       if (response.statusCode == HttpStatus.forbidden) {
@@ -120,26 +118,30 @@ class Request {
         _handleError("status非success！{${response.data["message"]}");
       }
       // 如果有remember的header
-      if (response.headers[JWT_RESPONSE_HEADER] != null) {
-        String token = response.headers[JWT_RESPONSE_HEADER][0];
-        _saveJwt(token);
+      final List<String>? remember = response.headers[JWT_RESPONSE_HEADER];
+      if (remember != null && remember.isNotEmpty) {
+        _saveJwt(remember[0]);
       }
       // 成功的回调 直接给response内容 中的 data下标 其他情况在钩子里已全部处理了
       if (success != null) {
         success(response.data["data"]);
       }
-    } on DioError catch (e) {
-      // 500在这里会被处理掉 DioError把500的拿走了
+    } on DioException catch (e) {
+      // 500在这里会被处理掉 DioException把500的拿走了
       if (e.response != null) {
-        _handleError(e.response.data['message']);
+        _handleError("${e.response?.data?['message'] ?? e.message ?? '请求失败'}");
       } else {
-        _handleError(e.message);
+        _handleError(e.message ?? '请求失败');
       }
     }
   }
 }
 
 // 封装的错误
-class RequestError extends DioError {
-  RequestError({String message}) : super(message: message);
+class RequestError extends DioException {
+  RequestError({required String message, RequestOptions? requestOptions})
+      : super(
+          requestOptions: requestOptions ?? RequestOptions(),
+          message: message,
+        );
 }

@@ -8,10 +8,10 @@ class LostFinish extends StatefulWidget {
   // 唯一id
   final String uuid;
 
-  LostFinish(this.uuid);
+  const LostFinish(this.uuid, {super.key});
 
   @override
-  createState() => new LostFinishState();
+  LostFinishState createState() => LostFinishState();
 }
 
 class LostFinishState extends State<LostFinish> {
@@ -22,49 +22,58 @@ class LostFinishState extends State<LostFinish> {
 
   @override
   Widget build(BuildContext context) {
-    return new WillPopScope(
+    // WillPopScope 已废弃，改用 PopScope（等价语义：拦截返回，手动带参数 pop）
+    return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, Object? result) {
+          if (didPop) return;
+          _goBack(BackAction.normal);
+        },
         child: Scaffold(
           body: Column(
             mainAxisAlignment: MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              SizedBox(
+              const SizedBox(
                 height: 120.0,
               ),
               Container(
-                child: Icon(
+                child: const Icon(
                   Icons.beenhere,
                   size: 130.0,
                   color: Colors.blue,
                 ),
               ),
               Container(
-                padding: EdgeInsets.only(top: 30.0),
-                child: Text(
+                padding: const EdgeInsets.only(top: 30.0),
+                child: const Text(
                   "报告失踪汪成功",
                   style: TextStyle(fontSize: 22.0, fontWeight: FontWeight.w400),
                 ),
               ),
               Container(
-                padding: EdgeInsets.only(top: 5.0),
+                padding: const EdgeInsets.only(top: 5.0),
                 child: Text(
                   widget.uuid,
-                  style: TextStyle(color: Colors.grey),
+                  style: const TextStyle(color: Colors.grey),
                 ),
               ),
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 30.0, vertical: 20.0),
-                child: Text(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30.0, vertical: 20.0),
+                child: const Text(
                     "请立即进入详情页面开始转发扩散失踪汪讯息。我们已经将您的寻狗启事同步到了91xungou.com，并且通过“寻狗小程序”官方账号推送至微博。"),
               ),
               FractionallySizedBox(
                 widthFactor: 0.8,
-                child: RaisedButton(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                  ),
                   onPressed: () {
                     _goBack(BackAction.detail);
                   },
-                  color: Colors.blue,
-                  child: Text(
+                  child: const Text(
                     "查看详情",
                     style: TextStyle(color: Colors.white, fontSize: 20.0),
                   ),
@@ -72,11 +81,11 @@ class LostFinishState extends State<LostFinish> {
               ),
               FractionallySizedBox(
                 widthFactor: 0.8,
-                child: RaisedButton(
+                child: ElevatedButton(
                   onPressed: () {
                     _goBack(BackAction.normal);
                   },
-                  child: Text(
+                  child: const Text(
                     "返回列表",
                     style: TextStyle(fontSize: 20.0),
                   ),
@@ -84,9 +93,6 @@ class LostFinishState extends State<LostFinish> {
               ),
             ],
           ),
-        ),
-        onWillPop: () {
-          _goBack(BackAction.normal);
-        });
+        ));
   }
 }

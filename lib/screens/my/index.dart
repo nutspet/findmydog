@@ -1,19 +1,23 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:find_dog/common/login.dart';
-import 'lost.dart';
-import 'profile.dart';
 import 'package:find_dog/common/request.dart';
 import 'package:find_dog/models/profile.dart';
 
+import 'lost.dart';
+import 'profile.dart';
+
 class MyIndex extends StatefulWidget {
+  const MyIndex({super.key});
+
   @override
-  MyIndexState createState() => new MyIndexState();
+  MyIndexState createState() => MyIndexState();
 }
 
 // 个人中心
 class MyIndexState extends State<MyIndex> {
-  Profile profile = new Profile();
+  Profile profile = Profile();
 
   MyIndexState() {
     _loadProfile();
@@ -39,44 +43,46 @@ class MyIndexState extends State<MyIndex> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xfff8f8f8),
+      backgroundColor: const Color(0xfff8f8f8),
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           "个人中心",
           style: TextStyle(fontSize: 16.0, color: Colors.black),
         ),
         elevation: 0.0,
         centerTitle: true,
-        brightness: Brightness.light,
-        backgroundColor: Color(0xfff8f8f8),
+        // AppBar.brightness 已被移除，等价写法是设置状态栏图标风格
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        backgroundColor: const Color(0xfff8f8f8),
       ),
       body: Column(
         children: <Widget>[
           Container(
+            color: Colors.white,
             child: Column(
               children: <Widget>[
-                Divider(
+                const Divider(
                   height: 1.0,
                 ),
                 ListTile(
                   dense: true,
                   title: Text(profile.name),
                   subtitle: Text(profile.mobileVerify ? "手机已认证" : "手机尚未验证"),
-                  leading: CircleAvatar(
+                  leading: const CircleAvatar(
+                    maxRadius: 23.0,
                     child: Icon(
                       Icons.person,
                       size: 40.0,
                     ),
-                    maxRadius: 23.0,
                   ),
-                  trailing: Icon(Icons.keyboard_arrow_right),
+                  trailing: const Icon(Icons.keyboard_arrow_right),
                   onTap: () async {
-                    bool fresh = await Navigator.push(
+                    bool? fresh = await Navigator.push(
                       context,
-                      new MaterialPageRoute<bool>(
-                        builder: (_) => new MyProfile(
-                              profile: profile,
-                            ),
+                      MaterialPageRoute<bool>(
+                        builder: (_) => MyProfile(
+                          profile: profile,
+                        ),
                       ),
                     );
                     // 如果更新了
@@ -85,20 +91,20 @@ class MyIndexState extends State<MyIndex> {
                     }
                   },
                 ),
-                Divider(
+                const Divider(
                   height: 1.0,
                 ),
                 Container(
                   height: 40.0,
-                  color: Color(0xfff8f8f8),
+                  color: const Color(0xfff8f8f8),
                 ),
-                Divider(
+                const Divider(
                   height: 1.0,
                 ),
                 ListTile(
                   dense: true,
                   isThreeLine: false,
-                  title: Text(
+                  title: const Text(
                     "我的失踪汪报告",
                     style: TextStyle(fontSize: 14.0),
                   ),
@@ -106,29 +112,29 @@ class MyIndexState extends State<MyIndex> {
                     image: AssetImage("data_repo/img/my/clock.png"),
                     width: 24.0,
                   ),
-                  trailing: Icon(Icons.keyboard_arrow_right),
+                  trailing: const Icon(Icons.keyboard_arrow_right),
                   onTap: () {
                     Navigator.push(
                       context,
-                      new MaterialPageRoute(
-                        builder: (_) => new MyLost(),
+                      MaterialPageRoute(
+                        builder: (_) => const MyLost(),
                       ),
                     );
                   },
                 ),
-                Divider(
+                const Divider(
                   height: 1.0,
                 ),
                 Container(
                   height: 40.0,
-                  color: Color(0xfff8f8f8),
+                  color: const Color(0xfff8f8f8),
                 ),
-                Divider(
+                const Divider(
                   height: 1.0,
                 ),
                 ListTile(
                   dense: true,
-                  title: Text(
+                  title: const Text(
                     "重新获取登录态",
                     style: TextStyle(fontSize: 14.0),
                   ),
@@ -136,13 +142,13 @@ class MyIndexState extends State<MyIndex> {
                     image: AssetImage("data_repo/img/my/pen&ruler.png"),
                     width: 24.0,
                   ),
-                  trailing: Icon(Icons.keyboard_arrow_right),
+                  trailing: const Icon(Icons.keyboard_arrow_right),
                   onTap: () {
                     showDialog(
                       context: context,
                       barrierDismissible: false,
                       builder: (_) {
-                        return Dialog(
+                        return const Dialog(
                           child: Padding(
                             padding: EdgeInsets.symmetric(vertical: 30.0),
                             child: Column(
@@ -163,13 +169,13 @@ class MyIndexState extends State<MyIndex> {
                           context: context,
                           builder: (_) {
                             return AlertDialog(
-                              content: Text("重新登录成功！"),
+                              content: const Text("重新登录成功！"),
                               actions: <Widget>[
-                                RaisedButton(
+                                ElevatedButton(
                                   onPressed: () {
                                     Navigator.of(context).pop();
                                   },
-                                  child: Text(
+                                  child: const Text(
                                     "确认",
                                     style: TextStyle(color: Colors.white),
                                   ),
@@ -185,11 +191,11 @@ class MyIndexState extends State<MyIndex> {
                             return AlertDialog(
                               content: Text("重新登录失败！$message"),
                               actions: <Widget>[
-                                RaisedButton(
+                                ElevatedButton(
                                   onPressed: () {
                                     Navigator.of(context).pop();
                                   },
-                                  child: Text(
+                                  child: const Text(
                                     "确认",
                                     style: TextStyle(color: Colors.white),
                                   ),
@@ -200,12 +206,12 @@ class MyIndexState extends State<MyIndex> {
                     });
                   },
                 ),
-                Divider(
+                const Divider(
                   height: 1.0,
                 ),
                 ListTile(
                   dense: true,
-                  title: Text(
+                  title: const Text(
                     "寻狗",
                     style: TextStyle(fontSize: 14.0),
                   ),
@@ -213,7 +219,7 @@ class MyIndexState extends State<MyIndex> {
                     image: AssetImage("data_repo/img/my/plant.png"),
                     width: 24.0,
                   ),
-                  trailing: Text(
+                  trailing: const Text(
                     "版本 1.9.9.14",
                     style: TextStyle(fontSize: 14.0),
                   ),
@@ -221,7 +227,7 @@ class MyIndexState extends State<MyIndex> {
                     showDialog(
                         context: context,
                         builder: (_) {
-                          return AlertDialog(
+                          return const AlertDialog(
                             content: Text(
                               "原生APP版本！我们一直在努力！加油！",
                               style: TextStyle(fontSize: 12.0),
@@ -230,12 +236,11 @@ class MyIndexState extends State<MyIndex> {
                         });
                   },
                 ),
-                Divider(
+                const Divider(
                   height: 1.0,
                 )
               ],
             ),
-            color: Colors.white,
           ),
         ],
       ),

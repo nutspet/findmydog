@@ -1,14 +1,17 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:find_dog/common/request.dart';
-import 'package:find_dog/screens/lost/detail.dart';
 import 'package:find_dog/models/dog_lost.dart';
+import 'package:find_dog/screens/lost/detail.dart';
 
 // 失踪汪救助中心
 class MyLost extends StatefulWidget {
+  const MyLost({super.key});
+
   @override
-  MyLostState createState() => new MyLostState();
+  MyLostState createState() => MyLostState();
 }
 
 class MyLostState extends State<MyLost> {
@@ -37,7 +40,7 @@ class MyLostState extends State<MyLost> {
       // 加载数据
       List list = res["result"];
       List<DogLost> apiList = list.map((e) {
-        return new DogLost.fromJson(e);
+        return DogLost.fromJson(e);
       }).toList();
       setState(() {
         _myList = apiList;
@@ -64,10 +67,12 @@ class MyLostState extends State<MyLost> {
 
   // 提示
   void _showSnack(String txt) {
-    _scaffoldKey.currentState.showSnackBar(
+    // ScaffoldState.showSnackBar 已在 Flutter 3.x 中移除，改用 ScaffoldMessenger
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(txt),
-        duration: Duration(seconds: 1),
+        duration: const Duration(seconds: 1),
       ),
     );
   }
@@ -90,10 +95,10 @@ class MyLostState extends State<MyLost> {
                       Navigator.pop(context);
                       Navigator.push(
                         context,
-                        new MaterialPageRoute(
-                          builder: (context) => new LostDetail(
-                                dog: list[index],
-                              ),
+                        MaterialPageRoute(
+                          builder: (context) => LostDetail(
+                            dog: list[index],
+                          ),
                         ),
                       );
                     },
@@ -126,10 +131,11 @@ class MyLostState extends State<MyLost> {
         child: list[index].pic.isNotEmpty
             ? CachedNetworkImage(
                 imageUrl: "${list[index].pic[0].link}$_listImgSuffix",
-                placeholder: (context, url) => CupertinoActivityIndicator(),
-                errorWidget: (context, url, error) => Icon(Icons.error),
+                placeholder: (context, url) =>
+                    const CupertinoActivityIndicator(),
+                errorWidget: (context, url, error) => const Icon(Icons.error),
               )
-            : FlutterLogo(),
+            : const FlutterLogo(),
       ),
       title: Text(
         "${list[index].regionCity} ${list[index].locationName}附近 ${list[index].age}岁${list[index].color} ${list[index].breed}(${list[index].gender}) ${list[index].found ? '已找到' : '尚未找到'}",
@@ -142,17 +148,17 @@ class MyLostState extends State<MyLost> {
       subtitle: Row(
         children: <Widget>[
           Text("失踪时间 ${list[index].date} ${list[index].time}",
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12.0,
               )),
           Container(
             height: 16.0,
             width: 1.0,
             color: Colors.black12,
-            margin: EdgeInsets.only(left: 5.0, right: 5.0),
+            margin: const EdgeInsets.only(left: 5.0, right: 5.0),
           ),
           list[index].negotiate
-              ? Text(
+              ? const Text(
                   "面议",
                   style: TextStyle(
                     color: Colors.red,
@@ -162,7 +168,7 @@ class MyLostState extends State<MyLost> {
                 )
               : Text(
                   "¥ ${list[index].reward}元",
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.blueAccent,
                     fontSize: 12.0,
                   ),
@@ -178,28 +184,29 @@ class MyLostState extends State<MyLost> {
     return Scaffold(
         key: _scaffoldKey,
         appBar: AppBar(
-          title: Text(
+          title: const Text(
             "我的失踪汪报告",
             style: TextStyle(fontSize: 16.0, color: Colors.black),
           ),
           elevation: 0.0,
           leading: IconButton(
-              icon: Icon(
+              icon: const Icon(
                 Icons.arrow_back_ios,
                 color: Colors.black,
               ),
               onPressed: () {
                 Navigator.of(context).pop();
               }),
-          brightness: Brightness.light,
-          backgroundColor: Color(0xfff8f8f8),
+          // AppBar.brightness 已被移除，等价写法是设置状态栏图标风格
+          systemOverlayStyle: SystemUiOverlayStyle.dark,
+          backgroundColor: const Color(0xfff8f8f8),
         ),
         body: _myList.length != 0
             ? Padding(
-                padding: EdgeInsets.all(5.0),
+                padding: const EdgeInsets.all(5.0),
                 child: ListView.separated(
                   itemCount: _myList.length,
-                  separatorBuilder: (context, i) => new Divider(),
+                  separatorBuilder: (context, i) => const Divider(),
                   itemBuilder: (context, index) => _rowBuilder(
                         context,
                         index,
@@ -207,7 +214,7 @@ class MyLostState extends State<MyLost> {
                       ),
                 ),
               )
-            : Center(
+            : const Center(
                 child: Text("暂无数据"),
               ));
   }

@@ -19,28 +19,29 @@ class DogLost extends Dog {
     false: '母',
     true: '公',
   };
-  int id;
-  String uuid;
-  int age;
-  String date;
-  String contactsGender;
-  String contactsMobile;
-  String contactsName;
+  // 空安全：字段必须有初始值，空构造（new DogLost()）才是合法的
+  int id = 0;
+  String uuid = '';
+  int age = 0;
+  String date = '';
+  String contactsGender = '';
+  String contactsMobile = '';
+  String contactsName = '';
   bool found = false;
-  String gender;
-  String locationAddress;
-  String locationName;
-  String locationLatitude;
-  String locationLongitude;
+  String gender = '';
+  String locationAddress = '';
+  String locationName = '';
+  String locationLatitude = '';
+  String locationLongitude = '';
   bool negotiate = false;
-  String regionArea;
-  String regionCity;
-  String regionProvince;
+  String regionArea = '';
+  String regionCity = '';
+  String regionProvince = '';
   String remark = '';
   int reward = 0;
-  String time;
-  int weight;
-  String wxaQrCode;
+  String time = '';
+  int weight = 0;
+  String wxaQrCode = '';
 
   DogLost();
 
@@ -50,11 +51,11 @@ class DogLost extends Dog {
         uuid = json["uuid"],
         age = json["age"],
         date = json["date"],
-        contactsGender = UserGender[json["contactsGender"]],
+        contactsGender = UserGender[json["contactsGender"]] ?? '',
         contactsMobile = json["contactsMobile"],
         contactsName = json["contactsName"],
         found = json["found"],
-        gender = DogGender[json["gender"]],
+        gender = DogGender[json["gender"]] ?? '',
         locationAddress = json["locationAddress"],
         locationName = json["locationName"],
         locationLatitude = json["locationLatitude"],

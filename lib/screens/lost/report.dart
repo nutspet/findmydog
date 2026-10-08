@@ -1,23 +1,28 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_picker_plus/flutter_picker_plus.dart';
+import 'package:fluwx/fluwx.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_picker/flutter_picker.dart';
+import 'package:find_dog/common/constants.dart';
+import 'package:find_dog/common/request.dart';
 import 'package:find_dog/models/dog.dart';
 import 'package:find_dog/models/dog_lost.dart';
+import 'package:find_dog/models/location.dart';
+import 'package:find_dog/screens/lost/finish.dart';
 import 'package:find_dog/utils/validate.dart';
 import 'package:find_dog/widgets/form_image_picker.dart';
-import 'package:flutter/services.dart';
-import 'dart:io';
-import 'dart:convert';
-import 'package:find_dog/common/request.dart';
-import 'package:dio/dio.dart';
-import 'package:find_dog/screens/lost/finish.dart';
-import 'detail.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:find_dog/common/constants.dart';
-import 'package:find_dog/models/location.dart';
-import 'package:fluwx/fluwx.dart' as fluwx;
 
-const mapKey = Constants.amapWebKey;
+import 'detail.dart';
+
+// fluwx 6.x 用一个实例来调用（open 等）
+final Fluwx _fluwx = Fluwx();
+
+const String mapKey = Constants.amapWebKey;
 
 // 提交报告成功与否 返回到list决定是否刷新
 enum ReportAction { success, stop }
@@ -55,8 +60,10 @@ const List<Map<int, Map<String, Color>>> color = [
 
 // 失踪报告
 class LostReport extends StatefulWidget {
+  const LostReport({super.key});
+
   @override
-  createState() => new LostReportState();
+  LostReportState createState() => LostReportState();
 }
 
 class LostReportState extends State<LostReport> {
@@ -98,19 +105,21 @@ class LostReportState extends State<LostReport> {
   String locationLatitude = "0.0";
 
   // 图片 控件的内部state 也是需要初始化和保存在页面内的
-  Map<File, ImageUploadStatus> _imageFile = new Map();
+  Map<File, ImageUploadStatus> _imageFile = <File, ImageUploadStatus>{};
 
   // 腾讯云上传 最终上传的应该是 _uploadImage.values.toList();
   Map<File, Map<String, String>> _uploadImage = {};
 
   // snackbar 提示
   void showInSnackBar(String value) {
-    _scaffoldKey.currentState.showSnackBar(SnackBar(content: Text(value)));
+    // ScaffoldState.showSnackBar 已在 Flutter 3.x 中移除，改用 ScaffoldMessenger
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
 
   // 用户离开提示
   Future<bool> _warnUserAboutInvalidData() async {
-    final FormState form = _formKey.currentState;
+    final FormState? form = _formKey.currentState;
 
     if (form == null || !_formChanged) return true;
 
@@ -121,13 +130,13 @@ class LostReportState extends State<LostReport> {
               title: const Text('尚未完成！'),
               content: const Text('确认离开表单？'),
               actions: <Widget>[
-                FlatButton(
+                TextButton(
                   child: const Text('是'),
                   onPressed: () {
                     Navigator.of(context).pop(true);
                   },
                 ),
-                FlatButton(
+                TextButton(
                   child: const Text('否'),
                   onPressed: () {
                     Navigator.of(context).pop(false);
@@ -142,7 +151,8 @@ class LostReportState extends State<LostReport> {
 
   // 表单提交
   void _handleSubmitted() async {
-    final FormState form = _formKey.currentState;
+    final FormState? form = _formKey.currentState;
+    if (form == null) return;
     if (!form.validate()) {
       _autoValidate = true; // Start validating on every change.
       showInSnackBar('请修正表单错误项！');
@@ -155,12 +165,12 @@ class LostReportState extends State<LostReport> {
         builder: (_) {
           return Dialog(
             child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 30.0),
+              padding: const EdgeInsets.symmetric(vertical: 30.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CupertinoActivityIndicator(),
-                  Text("请求中。。。"),
+                  const CupertinoActivityIndicator(),
+                  const Text("请求中。。。"),
                 ],
               ),
             ),
@@ -172,20 +182,19 @@ class LostReportState extends State<LostReport> {
       // 地理位置的说 ampa的原始请求
       print(
           "https://restapi.amap.com/v3/geocode/geo?key=$mapKey&address=$_locationName&city=$_regionCity");
-      Response response = await api
-          .getDio()
-          .get(
-            "https://restapi.amap.com/v3/geocode/geo?key=$mapKey&address=$_locationName&city=$_regionCity",
-          )
-          .catchError((e) {
+      Response? response;
+      try {
+        response = await api.getDio().get(
+              "https://restapi.amap.com/v3/geocode/geo?key=$mapKey&address=$_locationName&city=$_regionCity",
+            );
+      } catch (e) {
         // print("有个错误啦");
         print(e);
-      }).whenComplete(() {
-        // Navigator.of(context).pop();
-      });
+      }
       try {
-        print(response.data['geocodes'][0]['location']);
-        String location = response.data['geocodes'][0]['location'];
+        final dynamic data = response?.data;
+        final String location = data['geocodes'][0]['location'];
+        print(location);
         List<String> loc = location.split(",");
         print(loc);
         locationLongitude = loc[0];
@@ -195,7 +204,7 @@ class LostReportState extends State<LostReport> {
       }
       // showInSnackBar('${person.name}\'s phone number is ${person.phoneNumber}');
       // 提交逻辑在这里处理
-      Map<String, dynamic> params = new Map();
+      Map<String, dynamic> params = <String, dynamic>{};
       params['date'] = DateFormat("yyyy-MM-dd").format(_date);
       params['time'] = _time;
       params['regionProvince'] = _regionProvince;
@@ -209,19 +218,17 @@ class LostReportState extends State<LostReport> {
       params['size'] = _size;
       params['breed'] = _breed;
       params['gender'] = _gender ? 1 : 0;
-      ;
       params['age'] = _age.round();
       params['weight'] = _weight.round();
       params['remark'] = _remark;
       params['pic'] = jsonEncode(_uploadImage.values.toList());
       params['contactsName'] = _contactsName;
       params['contactsGender'] = _contactsGender ? 1 : 0;
-      ;
       params['contactsMobile'] = _contactsMobile;
       params['negotiate'] = _negotiate ? 1 : 0;
       params['reward'] = _reward;
       print(params);
-      FormData formData = new FormData.from(params);
+      FormData formData = FormData.fromMap(params);
       api.req('/lost/report2', auth: true, method: 'POST', data: formData,
           success: (res) async {
         // 删除成功返回qlcoud的requestid
@@ -229,7 +236,7 @@ class LostReportState extends State<LostReport> {
         // {result: {userId: 8f2deede-6d9a-4de6-983e-5cc15ce4929c, lostId: 103, lostUuid: abdddbd3-ebe9-42d1-b26e-29cbb65ae679}}
         String uuid = res['result']['lostUuid'];
         // 送去finish页面
-        BackAction result = await Navigator.push(
+        BackAction? result = await Navigator.push(
           context,
           MaterialPageRoute<BackAction>(
             builder: (context) => LostFinish(uuid),
@@ -237,6 +244,7 @@ class LostReportState extends State<LostReport> {
           ),
         );
         // finish页面的返回
+        if (!mounted) return; // 跨过 await 后 State 可能已销毁，用 context 前先确认
         if (result == BackAction.detail) {
           // 直接拼模型 手工转下 补一个found 打开速度快 不请求网络
           params['negotiate'] = params['negotiate'] == 1 ? true : false;
@@ -247,19 +255,21 @@ class LostReportState extends State<LostReport> {
           // 测试跳详情
           await Navigator.push(
             context,
-            new MaterialPageRoute(
-              builder: (context) => new LostDetail(
-                    dog: detail,
-                  ),
+            MaterialPageRoute(
+              builder: (context) => LostDetail(
+                dog: detail,
+              ),
             ),
           );
+          if (!mounted) return;
         }
         // 把mask去掉
         Navigator.of(context).pop();
         Navigator.of(context).pop(ReportAction.success);
-      }).catchError(() {
+      }).catchError((Object e) {
         showInSnackBar("提交出错！");
         // 把mask去掉
+        if (!mounted) return;
         Navigator.of(context).pop();
       });
     }
@@ -267,97 +277,109 @@ class LostReportState extends State<LostReport> {
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
+    return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: new Color(0XFFf8f8f8),
-      appBar: new AppBar(
+      backgroundColor: const Color(0XFFf8f8f8),
+      appBar: AppBar(
         actions: <Widget>[
           Container(
+            margin: const EdgeInsets.only(
+              right: 0.0,
+            ),
             child: IconButton(
-                icon: Icon(Icons.help_outline),
+                icon: const Icon(Icons.help_outline),
                 onPressed: () {
                   showDialog<String>(
                     context: context,
                     barrierDismissible: true,
                     builder: (BuildContext context) =>
-                        SimpleDialog(title: Text('帮助说明'), children: <Widget>[
-                          Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 20.0),
-                            child: Text(
-                              "本表单专为生成高效率寻狗启事而设计得来，所有项都已精简到最小态，请认真填写。您也可以使用我们的微信小程序版本，可以同样的完成这项任务！",
-                              textAlign: TextAlign.justify,
-                            ),
-                          ),
-                          SizedBox(
-                            height: 10.0,
-                          ),
-                          Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 25.0),
-                            child: Image(
-                              image: AssetImage("data_repo/img/logo/wx.png"),
-                            ),
-                          ),
-                          SizedBox(
-                            height: 10.0,
-                          ),
-                          FractionallySizedBox(
-                            child: OutlineButton.icon(
-                                onPressed: () {
-                                  Navigator.of(context).pop();
-                                },
-                                icon: Icon(Icons.accessibility),
-                                label: Text("知道了！（关闭窗口）")),
-                            widthFactor: 0.9,
-                          ),
-                          FractionallySizedBox(
-                            child: OutlineButton.icon(
-                                onPressed: () {
-                                  Navigator.of(context).pop();
-                                  // 直接跳小程序
-                                  fluwx
-                                      .launchMiniProgram(
-                                    username: "gh_0c80acc3f473",
-                                  )
-                                      .then((data) {
-                                    print(data);
-                                  });
-                                },
-                                icon: Icon(Icons.check),
-                                label: Text("带我去小程序看看吧。")),
-                            widthFactor: 0.9,
-                          )
-                        ]),
+                        SimpleDialog(title: const Text('帮助说明'), children: <Widget>[
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 20.0),
+                        child: Text(
+                          "本表单专为生成高效率寻狗启事而设计得来，所有项都已精简到最小态，请认真填写。您也可以使用我们的微信小程序版本，可以同样的完成这项任务！",
+                          textAlign: TextAlign.justify,
+                        ),
+                      ),
+                      const SizedBox(
+                        height: 10.0,
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 25.0),
+                        child: Image(
+                          image: AssetImage("data_repo/img/logo/wx.png"),
+                        ),
+                      ),
+                      const SizedBox(
+                        height: 10.0,
+                      ),
+                      FractionallySizedBox(
+                        widthFactor: 0.9,
+                        child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(Icons.accessibility),
+                            label: const Text("知道了！（关闭窗口）")),
+                      ),
+                      FractionallySizedBox(
+                        widthFactor: 0.9,
+                        child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              // 直接跳小程序
+                              _fluwx
+                                  .open(
+                                target: MiniProgram(
+                                  username: "gh_0c80acc3f473",
+                                ),
+                              )
+                                  .then((data) {
+                                print(data);
+                              });
+                            },
+                            icon: const Icon(Icons.check),
+                            label: const Text("带我去小程序看看吧。")),
+                      )
+                    ]),
                   );
                 }),
-            margin: const EdgeInsets.only(
-              right: 0.0,
-            ),
           ),
         ],
         elevation: 0.0,
-        title: new Text(
+        title: const Text(
           "报告失踪汪",
           style: TextStyle(fontSize: 16.0),
         ),
       ),
       body: Form(
         key: _formKey,
+        // onWillPop 已废弃，改用 canPop + onPopInvokedWithResult
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, Object? result) async {
+          if (didPop) return;
+          final bool canPop = await _warnUserAboutInvalidData();
+          if (canPop && context.mounted) {
+            Navigator.of(context).pop();
+          }
+        },
         onChanged: () {
           // listview只渲染看到部分 导致丢失参数 所以还是要保存一下的 挺矛盾的
           _formChanged = true;
-          final FormState form = _formKey.currentState;
-          form.save();
+          final FormState? form = _formKey.currentState;
+          form?.save();
         },
-        autovalidate: _autoValidate,
-        onWillPop: _warnUserAboutInvalidData,
+        autovalidateMode:
+            _autoValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: <Widget>[
             Theme(
                 // 补丁 这样中文的日历不会有overflow
+                // TextTheme 的 display1 已废弃，对应新名 headlineMedium
                 data: Theme.of(context).copyWith(
-                    primaryTextTheme:
-                        TextTheme(display1: TextStyle(fontSize: 24.0))),
+                    primaryTextTheme: const TextTheme(
+                        headlineMedium: TextStyle(fontSize: 24.0))),
                 child: _DateTimePicker(
                   labelText: '失踪日期',
                   selectedDate: _date,
@@ -383,19 +405,20 @@ class LostReportState extends State<LostReport> {
                 ),
                 child: Text(
                   "$_regionProvince - $_regionCity - $_regionArea",
-                  style: TextStyle(fontSize: 18.0),
+                  style: const TextStyle(fontSize: 18.0),
                 ),
               ),
               onTap: () {
-                new Picker(
-                    adapter: PickerDataAdapter<String>(pickerdata: locations2),
+                Picker(
+                    adapter:
+                        PickerDataAdapter<String>(pickerData: locations2),
                     changeToFirst: true,
                     textAlign: TextAlign.left,
                     confirmText: "确认",
                     cancelText: "取消",
                     columnPadding: const EdgeInsets.all(8.0),
                     // selecteds: _lostLatestPicker,
-                    onConfirm: (Picker picker, List value) {
+                    onConfirm: (Picker picker, List<int> value) {
                       setState(() {
                         _regionProvince = picker.getSelectedValues()[0];
                         _regionCity = picker.getSelectedValues()[1];
@@ -410,19 +433,21 @@ class LostReportState extends State<LostReport> {
                 labelText: '详细地址',
                 isDense: true,
                 helperText: '填写精准地址。（例如：XX小区XX楼门口）',
-                suffixIcon: IconButton(
+                suffixIcon: const IconButton(
                     icon: Icon(Icons.location_searching), onPressed: null),
               ),
               initialValue: _locationName,
-              style:
-                  Theme.of(context).textTheme.display1.copyWith(fontSize: 18.0),
-              validator: (String value) {
-                if (value.isEmpty) return '详细地址不能为空！';
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineMedium
+                  ?.copyWith(fontSize: 18.0),
+              validator: (String? value) {
+                if (value == null || value.isEmpty) return '详细地址不能为空！';
                 return null;
               },
-              onSaved: (String value) {
-                _locationAddress = value;
-                _locationName = value;
+              onSaved: (String? value) {
+                _locationAddress = value ?? '';
+                _locationName = value ?? '';
               },
             ),
             const SizedBox(height: 10.0),
@@ -439,16 +464,17 @@ class LostReportState extends State<LostReport> {
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<int>(
                         value: _color,
-                        onChanged: (int newValue) {
+                        onChanged: (int? newValue) {
+                          if (newValue == null) return;
                           setState(() {
                             _color = newValue;
                           });
                         },
                         items: color.map<DropdownMenuItem<int>>(
                             (Map<int, Map<String, Color>> item) {
-                          int i;
-                          String l;
-                          Color c;
+                          int? i;
+                          String? l;
+                          Color? c;
                           item.forEach((index, combo) {
                             i = index;
                             combo.forEach((label, theme) {
@@ -463,16 +489,16 @@ class LostReportState extends State<LostReport> {
                                 Container(
                                   height: 10.0,
                                   width: 10.0,
-                                  margin: EdgeInsets.only(right: 10.0),
+                                  margin: const EdgeInsets.only(right: 10.0),
                                   decoration: BoxDecoration(
                                     color: c,
-                                    border:
-                                        Border.all(color: Colors.grey.shade300),
+                                    border: Border.all(
+                                        color: Colors.grey.shade300),
                                   ),
                                 ),
                                 Text(
-                                  l,
-                                  style: TextStyle(fontSize: 14.0),
+                                  l ?? '',
+                                  style: const TextStyle(fontSize: 14.0),
                                 )
                               ],
                             ),
@@ -482,7 +508,7 @@ class LostReportState extends State<LostReport> {
                     ),
                   ),
                 ),
-                SizedBox(
+                const SizedBox(
                   width: 12.0,
                 ),
                 Expanded(
@@ -496,7 +522,8 @@ class LostReportState extends State<LostReport> {
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<bool>(
                         value: _gender,
-                        onChanged: (bool newValue) {
+                        onChanged: (bool? newValue) {
+                          if (newValue == null) return;
                           setState(() {
                             _gender = newValue;
                           });
@@ -506,8 +533,8 @@ class LostReportState extends State<LostReport> {
                           return DropdownMenuItem<bool>(
                             value: key,
                             child: Text(
-                              DogLost.DogGender[key],
-                              style: TextStyle(fontSize: 14.0),
+                              DogLost.DogGender[key] ?? '',
+                              style: const TextStyle(fontSize: 14.0),
                             ),
                           );
                         }).toList(),
@@ -515,7 +542,7 @@ class LostReportState extends State<LostReport> {
                     ),
                   ),
                 ),
-                SizedBox(
+                const SizedBox(
                   width: 12.0,
                 ),
                 Expanded(
@@ -529,14 +556,15 @@ class LostReportState extends State<LostReport> {
                           contentPadding: EdgeInsets.only(bottom: 12.0),
                         ),
                         child: Padding(
-                          padding: EdgeInsets.only(top: 12.0),
+                          padding: const EdgeInsets.only(top: 12.0),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
                               Text(
-                                Dog.DogSizeBreed[_size][_sizeName][_breed],
-                                style: TextStyle(fontSize: 14.0),
+                                Dog.DogSizeBreed[_size][_sizeName]?[_breed] ??
+                                    '',
+                                style: const TextStyle(fontSize: 14.0),
                               ),
                               Icon(Icons.arrow_drop_down,
                                   color: Theme.of(context).brightness ==
@@ -548,16 +576,16 @@ class LostReportState extends State<LostReport> {
                         ),
                       ),
                       onTap: () {
-                        new Picker(
+                        Picker(
                             adapter: PickerDataAdapter<String>(
-                                pickerdata: Dog.DogSizeBreed),
+                                pickerData: Dog.DogSizeBreed),
                             // changeToFirst: true,
                             confirmText: "确认",
                             cancelText: "取消",
                             textAlign: TextAlign.left,
                             columnPadding: const EdgeInsets.all(8.0),
                             // selecteds: [_lostLatestSize, _lostLatestBreed],
-                            onConfirm: (Picker picker, List value) {
+                            onConfirm: (Picker picker, List<int> value) {
                               //print(value.toString());
                               //print(picker.getSelectedValues());
                               setState(() {
@@ -581,7 +609,7 @@ class LostReportState extends State<LostReport> {
                       suffixIcon: Chip(
                         label: Text("${_age.toInt()}"),
                       ),
-                      contentPadding: EdgeInsets.all(5.0),
+                      contentPadding: const EdgeInsets.all(5.0),
                     ),
                     child: Slider(
                       value: _age,
@@ -609,7 +637,7 @@ class LostReportState extends State<LostReport> {
                       suffixIcon: Chip(
                         label: Text("${_weight.toInt()}"),
                       ),
-                      contentPadding: EdgeInsets.all(5.0),
+                      contentPadding: const EdgeInsets.all(5.0),
                     ),
                     child: Slider(
                       value: _weight,
@@ -637,12 +665,12 @@ class LostReportState extends State<LostReport> {
               ),
               maxLines: 3,
               initialValue: _remark,
-              validator: (String value) {
-                if (value.isEmpty) return '详细说明不能为空';
+              validator: (String? value) {
+                if (value == null || value.isEmpty) return '详细说明不能为空';
                 return null;
               },
-              onSaved: (String value) {
-                _remark = value;
+              onSaved: (String? value) {
+                _remark = value ?? '';
               },
             ),
             const SizedBox(height: 10.0),
@@ -650,21 +678,20 @@ class LostReportState extends State<LostReport> {
               titleLabel: "上传图片（1-9张）（单张5mb大小）",
               initialValue: _imageFile,
               onError: showInSnackBar,
-              onSaved: (Map<File, ImageUploadStatus> value) {
-                _imageFile = value;
+              onSaved: (Map<File, ImageUploadStatus>? value) {
+                _imageFile = value ?? <File, ImageUploadStatus>{};
               },
-              validator: (Map<File, ImageUploadStatus> value) {
-                if (value.isEmpty) return '至少上传一张图片';
+              validator: (Map<File, ImageUploadStatus>? value) {
+                if (value == null || value.isEmpty) return '至少上传一张图片';
                 return null;
               },
               imageUpload: (file) async {
                 try {
                   // 生成File的formdata
-                  FormData formData = new FormData.from({
+                  FormData formData = FormData.fromMap({
                     "type": "debug",
-                    "file": [
-                      new UploadFileInfo(file, "debug"),
-                    ],
+                    "file":
+                        MultipartFile.fromFileSync(file.path, filename: "debug"),
                   });
                   Request api = Request();
                   await api.req('/upload2',
@@ -673,26 +700,26 @@ class LostReportState extends State<LostReport> {
                       data: formData, success: (res) {
                     // 返回列表 服务端是多条数据 虽然只能选择一张图
                     // 先转转类型 舒服点
-                    Map<String, List> resMap = new Map.from(res);
-                    resMap['result'].forEach((e) {
+                    final Map<String, List> resMap =
+                        Map<String, List>.from(res);
+                    (resMap['result'] ?? const <dynamic>[]).forEach((e) {
                       _uploadImage
-                          .addAll({file: new Map<String, String>.from(e)});
+                          .addAll({file: Map<String, String>.from(e as Map)});
                     });
                     // print(_uploadImage);
-                    return ImageUploadStatus.UPLOAD_SUCCESS;
                   });
-                  return ImageUploadStatus.UPLOAD_SUCCESS;
+                  return ImageUploadStatus.uploadSuccess;
                 } catch (e) {
                   // print("lala");
                   print(e);
                   showInSnackBar("添加图片失败！");
-                  return ImageUploadStatus.UPLOAD_FAIL;
+                  return ImageUploadStatus.uploadFail;
                 }
               },
               imageDelete: (file) async {
                 try {
                   FormData formData =
-                      new FormData.from({'key': _uploadImage[file]});
+                      FormData.fromMap({'key': _uploadImage[file]});
                   Request api = Request();
                   print(_uploadImage[file]);
                   await api.req('/delete2',
@@ -706,7 +733,7 @@ class LostReportState extends State<LostReport> {
                 } catch (e) {
                   // print("lala");
                   print(e);
-                  showInSnackBar(e);
+                  showInSnackBar('$e');
                   return false;
                 }
               },
@@ -720,7 +747,8 @@ class LostReportState extends State<LostReport> {
                 suffixIcon: DropdownButtonHideUnderline(
                     child: DropdownButton<bool>(
                   value: _contactsGender,
-                  onChanged: (bool newValue) {
+                  onChanged: (bool? newValue) {
+                    if (newValue == null) return;
                     setState(() {
                       _contactsGender = newValue;
                     });
@@ -730,22 +758,22 @@ class LostReportState extends State<LostReport> {
                       .map<DropdownMenuItem<bool>>((bool value) {
                     return DropdownMenuItem<bool>(
                       value: value,
-                      child: Text(DogLost.UserGender[value]),
+                      child: Text(DogLost.UserGender[value] ?? ''),
                     );
                   }).toList(),
                 )),
-                border: UnderlineInputBorder(),
+                border: const UnderlineInputBorder(),
                 filled: true,
-                icon: Icon(Icons.person),
+                icon: const Icon(Icons.person),
                 hintText: '希望他人如何称呼您',
                 labelText: '联系人姓名',
               ),
-              validator: (String value) {
-                if (value.isEmpty) return '姓名不能为空！';
+              validator: (String? value) {
+                if (value == null || value.isEmpty) return '姓名不能为空！';
                 return null;
               },
-              onSaved: (value) {
-                _contactsName = value;
+              onSaved: (String? value) {
+                _contactsName = value ?? '';
               },
             ),
             const SizedBox(height: 10.0),
@@ -760,12 +788,12 @@ class LostReportState extends State<LostReport> {
                 prefixText: '+86',
               ),
               keyboardType: TextInputType.phone,
-              inputFormatters: [WhitelistingTextInputFormatter.digitsOnly],
-              validator: (String value) {
-                return Validate.phone(value);
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              validator: (String? value) {
+                return Validate.phone(value ?? '');
               },
-              onSaved: (value) {
-                _contactsMobile = value;
+              onSaved: (String? value) {
+                _contactsMobile = value ?? '';
               },
               initialValue: _contactsMobile,
             ),
@@ -774,7 +802,7 @@ class LostReportState extends State<LostReport> {
               children: <Widget>[
                 TextFormField(
                   decoration: InputDecoration(
-                    border: UnderlineInputBorder(),
+                    border: const UnderlineInputBorder(),
                     isDense: true,
                     suffixIcon: Switch(
                         value: _negotiate,
@@ -784,61 +812,64 @@ class LostReportState extends State<LostReport> {
                           });
                         }),
                     filled: true,
-                    icon: Icon(Icons.attach_money),
+                    icon: const Icon(Icons.attach_money),
                     hintText: '若选择面议将不展示酬劳金额。',
                     labelText: '酬劳（人民币1至100000元）',
                   ),
                   keyboardType: TextInputType.number,
-                  inputFormatters: [WhitelistingTextInputFormatter.digitsOnly],
-                  validator: (String value) {
-                    if (value.isEmpty) return '请输入酬劳！';
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: (String? value) {
+                    if (value == null || value.isEmpty) return '请输入酬劳！';
                     int price = int.parse(value);
                     if (price < 1 || price > 100000) return '酬劳范围在1至100000元之间。';
                     return null;
                   },
-                  onSaved: (value) {
-                    _reward = int.parse(value);
+                  onSaved: (String? value) {
+                    _reward = int.tryParse(value ?? '') ?? 0;
                   },
                   initialValue: _reward.toString(),
                   // enabled: _negotiate,
                 ),
-                Positioned(
+                const Positioned(
+                  right: 11.0,
+                  top: 3.0,
                   child: Text(
                     "是否面议",
                     style: TextStyle(fontSize: 10.0),
                   ),
-                  right: 11.0,
-                  top: 3.0,
                 ),
                 Positioned(
-                  child: Text(
-                    _negotiate ? "是" : "否",
-                    style:
-                        TextStyle(fontSize: 10.0, fontWeight: FontWeight.bold),
-                  ),
                   right: 24.0,
                   bottom: 3.0,
+                  child: Text(
+                    _negotiate ? "是" : "否",
+                    style: const TextStyle(
+                        fontSize: 10.0, fontWeight: FontWeight.bold),
+                  ),
                 )
               ],
             ),
             const SizedBox(height: 10.0),
             Container(
-              child: RaisedButton.icon(
-                onPressed: _handleSubmitted,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(5.0)),
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              child: ElevatedButton.icon(
+                // ElevatedButton 没有 shape/color 直接参数，统一走 style
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColor,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(5.0)),
+                  ),
                 ),
-                icon: Icon(
+                onPressed: _handleSubmitted,
+                icon: const Icon(
                   Icons.save,
                   color: Colors.white,
                 ),
-                label: Text(
+                label: const Text(
                   "保存并发布",
                   style: TextStyle(color: Colors.white),
                 ),
-                color: Theme.of(context).primaryColor,
               ),
-              padding: EdgeInsets.symmetric(horizontal: 20.0),
             ),
           ],
         ),
@@ -848,20 +879,17 @@ class LostReportState extends State<LostReport> {
 }
 
 class _InputDropdown extends StatelessWidget {
-  const _InputDropdown(
-      {Key key,
-      this.child,
-      this.labelText,
-      this.valueText,
-      this.valueStyle,
-      this.onPressed})
-      : super(key: key);
+  const _InputDropdown({
+    required this.labelText,
+    required this.valueText,
+    required this.valueStyle,
+    required this.onPressed,
+  });
 
   final String labelText;
   final String valueText;
-  final TextStyle valueStyle;
+  final TextStyle? valueStyle;
   final VoidCallback onPressed;
-  final Widget child;
 
   @override
   Widget build(BuildContext context) {
@@ -871,7 +899,7 @@ class _InputDropdown extends StatelessWidget {
         decoration: InputDecoration(
           isDense: true,
           labelText: labelText,
-          labelStyle: TextStyle(fontSize: 16.0),
+          labelStyle: const TextStyle(fontSize: 16.0),
         ),
         baseStyle: valueStyle,
         child: Row(
@@ -892,14 +920,13 @@ class _InputDropdown extends StatelessWidget {
 
 // 直接从flutter example里复制来的
 class _DateTimePicker extends StatelessWidget {
-  const _DateTimePicker(
-      {Key key,
-      this.labelText,
-      this.selectedDate,
-      this.selectedTime,
-      this.selectDate,
-      this.selectTime})
-      : super(key: key);
+  const _DateTimePicker({
+    required this.labelText,
+    required this.selectedDate,
+    required this.selectedTime,
+    required this.selectDate,
+    required this.selectTime,
+  });
 
   final String labelText;
   final DateTime selectedDate;
@@ -908,9 +935,9 @@ class _DateTimePicker extends StatelessWidget {
   final ValueChanged<int> selectTime;
 
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime picked = await showDatePicker(
+    final DateTime? picked = await showDatePicker(
         context: context,
-        locale: Locale('zh', 'CH'),
+        locale: const Locale('zh', 'CH'),
         initialDate: selectedDate,
         firstDate: DateTime(2017),
         lastDate: DateTime.now());
@@ -919,7 +946,7 @@ class _DateTimePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final TextStyle valueStyle = Theme.of(context).textTheme.title;
+    final TextStyle? valueStyle = Theme.of(context).textTheme.titleLarge;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
@@ -945,7 +972,9 @@ class _DateTimePicker extends StatelessWidget {
               child: DropdownButtonHideUnderline(
                   child: DropdownButton<int>(
                 value: selectedTime,
-                onChanged: selectTime,
+                onChanged: (int? value) {
+                  if (value != null) selectTime(value);
+                },
                 items:
                     DogLost.LostTime.map<DropdownMenuItem<int>>((String value) {
                   return DropdownMenuItem<int>(

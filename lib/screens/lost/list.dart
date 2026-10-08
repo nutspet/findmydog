@@ -1,26 +1,27 @@
-import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter_picker/flutter_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_picker_plus/flutter_picker_plus.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:find_dog/common/request.dart';
 import 'package:find_dog/models/dog.dart';
 import 'package:find_dog/models/dog_lost.dart';
 import 'package:find_dog/models/location.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'detail.dart';
 import 'report.dart';
-import 'package:geolocator/geolocator.dart';
 
 // 失踪汪救助中心
 class LostList extends StatefulWidget {
+  const LostList({super.key});
+
   @override
-  LostListState createState() => new LostListState();
+  LostListState createState() => LostListState();
 }
 
 // SingleTickerProviderStateMixin 用来做动画
-class LostListState extends State<LostList>
-    with SingleTickerProviderStateMixin {
-  // TAB控制器
-  TabController controller;
+class LostListState extends State<LostList> with SingleTickerProviderStateMixin {
+  // TAB控制器（在 initState 里赋值，所以用 late）
+  late TabController controller;
 
   // 用来控制snackbar
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -61,6 +62,9 @@ class LostListState extends State<LostList>
   String _lostLatestProvince = _pickerExtra;
   String _lostLatestCity = _pickerExtra;
   String _lostLatestArea = _pickerExtra;
+  // 记录地区选择器上次的选中项，供 Picker 的 selecteds 复用（该能力目前在 UI 上是关掉的，
+  // 所以只写不读；保留字段是为了随时能把 selecteds 打开）。
+  // ignore: unused_field
   List<int> _lostLatestPicker = [0, 0, 0];
   int _lostLatestGender = 0;
   int _lostLatestColor = 0;
@@ -86,7 +90,7 @@ class LostListState extends State<LostList>
   @override
   void initState() {
     // 初始化TAB控制器
-    controller = new TabController(length: 3, vsync: this);
+    controller = TabController(length: 3, vsync: this);
     // 加入监听 到了附近tab获取位置
     controller.addListener(() {
       if (controller.indexIsChanging && controller.index == 2) {
@@ -96,7 +100,7 @@ class LostListState extends State<LostList>
     super.initState();
   }
 
-  Future<void> _futureNearBy;
+  Future<void>? _futureNearBy;
 
   // 处理地址位置
   // 因为没有load more 读取时间长 所以用future builder展示
@@ -105,14 +109,19 @@ class LostListState extends State<LostList>
 //    double longitude = 121.4402864;
 //    double latitude = 31.365503;
     try {
-      Position position = await Geolocator()
-          .getLastKnownPosition(desiredAccuracy: LocationAccuracy.high);
-      // 异步跑下次可以获取到
-      Geolocator()
-          .getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
-          .catchError((e) {
+      final Position? position =
+          await Geolocator.getLastKnownPosition();
+      // 异步跑下次可以获取到（火并忘，避免阻塞主流程）
+      Geolocator.getCurrentPosition(
+        locationSettings:
+            const LocationSettings(accuracy: LocationAccuracy.high),
+      ).then((_) {}, onError: (Object e) {
         print("current position");
       });
+      if (position == null) {
+        _showSnack("获取位置失败！请稍后重试！");
+        return;
+      }
       print(position.longitude);
       print(position.latitude);
       Request api = Request();
@@ -123,7 +132,7 @@ class LostListState extends State<LostList>
         // 加载数据
         List list = res["list"];
         List<DogLost> apiList = list.map((e) {
-          return new DogLost.fromJson(e);
+          return DogLost.fromJson(e);
         }).toList();
         this.setState(() {
           _lostNearByList = apiList;
@@ -185,7 +194,7 @@ class LostListState extends State<LostList>
       // 加载数据
       List list = res["list"];
       List<DogLost> apiList = list.map((e) {
-        return new DogLost.fromJson(e);
+        return DogLost.fromJson(e);
       }).toList();
       this.setState(() {
         if (reset) {
@@ -211,10 +220,14 @@ class LostListState extends State<LostList>
 
   // 提示
   void _showSnack(String txt) {
-    _scaffoldKey.currentState.showSnackBar(
+    // ScaffoldState.showSnackBar 已在 Flutter 3.x 中移除，改用 ScaffoldMessenger。
+    // 这里额外判断 mounted：LostListState 的构造函数里就会发起首次请求，
+    // 回调返回时组件可能尚未挂载（或已被销毁）。
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(txt),
-        duration: Duration(seconds: 1),
+        duration: const Duration(seconds: 1),
       ),
     );
   }
@@ -230,7 +243,7 @@ class LostListState extends State<LostList>
       // 加载数据
       List list = res["list"];
       List<DogLost> apiList = list.map((e) {
-        return new DogLost.fromJson(e);
+        return DogLost.fromJson(e);
       }).toList();
       this.setState(() {
         if (reset) {
@@ -255,13 +268,13 @@ class LostListState extends State<LostList>
 
   // 获得tabbar
   TabBar getTabBar() {
-    return new TabBar(
+    return TabBar(
       labelColor: Theme.of(context).secondaryHeaderColor,
       unselectedLabelColor: Theme.of(context).secondaryHeaderColor,
-      labelStyle: TextStyle(
+      labelStyle: const TextStyle(
         fontSize: 14.0,
       ),
-      tabs: <Tab>[
+      tabs: const <Tab>[
         Tab(
           // set icon to the tab
           text: "最新发布",
@@ -280,7 +293,7 @@ class LostListState extends State<LostList>
 
   // 获得tabview本体
   TabBarView getTabBarView(List<Tab> tabs) {
-    return new TabBarView(
+    return TabBarView(
       // Add tabs as widgets
       children: tabs,
       // set the controller
@@ -292,15 +305,15 @@ class LostListState extends State<LostList>
   // 追求MD的风格用loadmore的按钮 思考了很久
   // "上海市 闸北区第一中学小学附近 2岁黑色 卡哇伊（公）"
   Widget _rowBuilder(BuildContext context, int index, List<DogLost> list,
-      bool end, VoidCallback onPress) {
+      bool end, VoidCallback? onPress) {
     if (index == list.length) {
       return Container(
         width: 60.0,
-        padding: EdgeInsets.all(10.0),
-        child: RaisedButton.icon(
+        padding: const EdgeInsets.all(10.0),
+        child: ElevatedButton.icon(
           onPressed: end ? null : onPress,
-          label: end ? Text("已到最底部") : Text("加载更多数据"),
-          icon: end ? Icon(Icons.done) : Icon(Icons.expand_more),
+          label: end ? const Text("已到最底部") : const Text("加载更多数据"),
+          icon: end ? const Icon(Icons.done) : const Icon(Icons.expand_more),
         ),
       );
     } else {
@@ -308,10 +321,10 @@ class LostListState extends State<LostList>
         onTap: () {
           Navigator.push(
             context,
-            new MaterialPageRoute(
-              builder: (_) => new LostDetail(
-                    dog: list[index],
-                  ),
+            MaterialPageRoute(
+              builder: (_) => LostDetail(
+                dog: list[index],
+              ),
             ),
           );
         },
@@ -323,17 +336,19 @@ class LostListState extends State<LostList>
           child: list[index].pic.isNotEmpty
               ? CachedNetworkImage(
                   imageUrl: "${list[index].pic[0].link}$_listImgSuffix",
-                  placeholder: (context, url) => CupertinoActivityIndicator(),
-                  errorWidget: (context, url, error) => Icon(Icons.error),
+                  placeholder: (context, url) =>
+                      const CupertinoActivityIndicator(),
+                  errorWidget: (context, url, error) =>
+                      const Icon(Icons.error),
                 )
-              : FlutterLogo(),
+              : const FlutterLogo(),
         ),
         title: Padding(
-          padding: EdgeInsets.only(bottom: 5.0, top: 1.0),
+          padding: const EdgeInsets.only(bottom: 5.0, top: 1.0),
           child: Text(
             "${list[index].regionCity} ${list[index].locationName}附近 ${list[index].age}岁${list[index].color} ${list[index].breed}(${list[index].gender})",
             overflow: TextOverflow.fade,
-            style: TextStyle(
+            style: const TextStyle(
                 fontSize: 13.0,
                 fontWeight: FontWeight.w500,
                 color: Colors.black87),
@@ -342,17 +357,17 @@ class LostListState extends State<LostList>
         subtitle: Row(
           children: <Widget>[
             Text("失踪时间 ${list[index].date} ${list[index].time}",
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12.0,
                 )),
             Container(
               height: 16.0,
               width: 1.0,
               color: Colors.black12,
-              margin: EdgeInsets.only(left: 5.0, right: 5.0),
+              margin: const EdgeInsets.only(left: 5.0, right: 5.0),
             ),
             list[index].negotiate
-                ? Text(
+                ? const Text(
                     "面议",
                     style: TextStyle(
                       color: Colors.red,
@@ -362,7 +377,7 @@ class LostListState extends State<LostList>
                   )
                 : Text(
                     "¥ ${list[index].reward}",
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.blueAccent,
                       fontSize: 12.0,
                     ),
@@ -376,16 +391,16 @@ class LostListState extends State<LostList>
 
   @override
   Widget build(BuildContext context) {
-    Picker locationPicker = new Picker(
+    Picker locationPicker = Picker(
         adapter:
-            PickerDataAdapter<String>(pickerdata: convertPickerData(locations)),
+            PickerDataAdapter<String>(pickerData: convertPickerData(locations)),
         changeToFirst: true,
         textAlign: TextAlign.left,
         confirmText: "确认",
         cancelText: "取消",
         columnPadding: const EdgeInsets.all(8.0),
         // selecteds: _lostLatestPicker,
-        onConfirm: (Picker picker, List value) {
+        onConfirm: (Picker picker, List<int> value) {
           print(value.toString());
           print(picker.getSelectedValues());
 
@@ -409,41 +424,41 @@ class LostListState extends State<LostList>
           });
         });
     // print(MediaQuery.of(context));
-    return new Scaffold(
+    return Scaffold(
         key: _scaffoldKey,
         body: getTabBarView(<Tab>[
-          new Tab(
-            child: new Column(
+          Tab(
+            child: Column(
               // crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                new Row(
+                Row(
                   children: <Widget>[
                     Expanded(
-                      child: new FlatButton(
+                      child: TextButton(
                         onPressed: () {
                           // 三级联动地区选择
                           locationPicker.showModal(context);
                         },
-                        child: new Text(
+                        child: Text(
                           _lostLatestPickerText,
-                          style:
-                              TextStyle(fontSize: 12.0, color: Colors.black54),
+                          style: const TextStyle(
+                              fontSize: 12.0, color: Colors.black54),
                         ),
                       ),
                     ),
                     Expanded(
-                      child: new FlatButton(
+                      child: TextButton(
                         onPressed: () {
-                          new Picker(
+                          Picker(
                               adapter: PickerDataAdapter<String>(
-                                  pickerdata: dogSizeBreed),
+                                  pickerData: dogSizeBreed),
                               // changeToFirst: true,
                               confirmText: "确认",
                               cancelText: "取消",
                               textAlign: TextAlign.left,
                               columnPadding: const EdgeInsets.all(8.0),
                               // selecteds: [_lostLatestSize, _lostLatestBreed],
-                              onConfirm: (Picker picker, List value) {
+                              onConfirm: (Picker picker, List<int> value) {
                                 //print(value.toString());
                                 //print(picker.getSelectedValues());
                                 setState(() {
@@ -455,27 +470,26 @@ class LostListState extends State<LostList>
                                 });
                               }).showModal(context);
                         },
-                        child: new Text(
-                          dogSizeBreed[_lostLatestSize][_lostLatestSizeName]
-                              [_lostLatestBreed],
-                          style:
-                              TextStyle(fontSize: 12.0, color: Colors.black54),
+                        child: Text(
+                          '${dogSizeBreed[_lostLatestSize][_lostLatestSizeName]?[_lostLatestBreed] ?? ''}',
+                          style: const TextStyle(
+                              fontSize: 12.0, color: Colors.black54),
                         ),
                       ),
                     ),
                     Expanded(
-                      child: new FlatButton(
+                      child: TextButton(
                         onPressed: () {
-                          new Picker(
+                          Picker(
                               adapter: PickerDataAdapter<String>(
-                                  pickerdata: [dogColor], isArray: true),
+                                  pickerData: [dogColor], isArray: true),
                               // hideHeader: false,
                               selecteds: [_lostLatestColor],
                               confirmText: "确认",
                               cancelText: "取消",
                               // onSelect: ,
-                              // title: new Text("选择颜色"),
-                              onConfirm: (Picker picker, List value) {
+                              // title: Text("选择颜色"),
+                              onConfirm: (Picker picker, List<int> value) {
                                 print(value.toString());
                                 print(picker.getSelectedValues());
                                 setState(() {
@@ -484,26 +498,26 @@ class LostListState extends State<LostList>
                                 });
                               }).showModal(context);
                         },
-                        child: new Text(
+                        child: Text(
                           dogColor[_lostLatestColor],
-                          style:
-                              TextStyle(fontSize: 12.0, color: Colors.black54),
+                          style: const TextStyle(
+                              fontSize: 12.0, color: Colors.black54),
                         ),
                       ),
                     ),
                     Expanded(
-                      child: new FlatButton(
+                      child: TextButton(
                         onPressed: () {
-                          new Picker(
+                          Picker(
                               adapter: PickerDataAdapter<String>(
-                                  pickerdata: [dogGender], isArray: true),
+                                  pickerData: [dogGender], isArray: true),
                               // hideHeader: true,
                               selecteds: [_lostLatestGender],
                               confirmText: "确认",
                               cancelText: "取消",
                               // onSelect: ,
-                              // title: new Text("选择性别"),
-                              onConfirm: (Picker picker, List value) {
+                              // title: Text("选择性别"),
+                              onConfirm: (Picker picker, List<int> value) {
                                 print(value.toString());
                                 print(picker.getSelectedValues());
                                 setState(() {
@@ -512,10 +526,10 @@ class LostListState extends State<LostList>
                                 });
                               }).showModal(context);
                         },
-                        child: new Text(
+                        child: Text(
                           dogGender[_lostLatestGender],
-                          style:
-                              TextStyle(fontSize: 12.0, color: Colors.black54),
+                          style: const TextStyle(
+                              fontSize: 12.0, color: Colors.black54),
                         ),
                       ),
                     )
@@ -523,7 +537,7 @@ class LostListState extends State<LostList>
                 ),
                 // 一定要撑开
                 Expanded(
-                  child: new Container(
+                  child: Container(
                     margin: const EdgeInsets.all(5.0),
                     //color: Colors.red,
                     child: RefreshIndicator(
@@ -531,9 +545,9 @@ class LostListState extends State<LostList>
                       child: _lostLatestList.length != 0
                           ? ListView.separated(
                               // 这个pagestorage可以保持页面位置
-                              key: new PageStorageKey<String>("LostLatestList"),
+                              key: const PageStorageKey<String>("LostLatestList"),
                               itemCount: _lostLatestList.length + 1,
-                              separatorBuilder: (context, i) => new Divider(),
+                              separatorBuilder: (context, i) => const Divider(),
                               itemBuilder: (context, index) => _rowBuilder(
                                     context,
                                     index,
@@ -543,10 +557,10 @@ class LostListState extends State<LostList>
                                   ),
                             )
                           : Center(
-                              child: OutlineButton(
+                              child: OutlinedButton(
                                 onPressed: () async =>
                                     _refreshLatest(reset: true),
-                                child: Text("没有数据，重新加载！"),
+                                child: const Text("没有数据，重新加载！"),
                               ),
                             ),
                       onRefresh: () async => _refreshLatest(reset: true),
@@ -556,7 +570,7 @@ class LostListState extends State<LostList>
               ],
             ),
           ),
-          new Tab(
+          Tab(
             child: Container(
               margin: const EdgeInsets.all(5.0),
               //color: Colors.red,
@@ -565,23 +579,23 @@ class LostListState extends State<LostList>
                 child: _lostTopList.length != 0
                     ? ListView.separated(
                         // 这个pagestorage可以保持页面位置
-                        key: new PageStorageKey<String>("LostTopList"),
+                        key: const PageStorageKey<String>("LostTopList"),
                         itemCount: _lostTopList.length + 1,
-                        separatorBuilder: (context, i) => new Divider(),
+                        separatorBuilder: (context, i) => const Divider(),
                         itemBuilder: (context, index) => _rowBuilder(context,
                             index, _lostTopList, _lostTopEnd, _refreshTop),
                       )
                     : Center(
-                        child: OutlineButton(
+                        child: OutlinedButton(
                           onPressed: () async => _refreshTop(reset: true),
-                          child: Text("没有数据，重新加载！"),
+                          child: const Text("没有数据，重新加载！"),
                         ),
                       ),
                 onRefresh: () async => _refreshTop(reset: true),
               ),
             ),
           ),
-          new Tab(
+          Tab(
             child: Container(
               margin: const EdgeInsets.all(5.0),
               child: RefreshIndicator(
@@ -593,19 +607,20 @@ class LostListState extends State<LostList>
                       (BuildContext context, AsyncSnapshot<void> snapshot) {
                     switch (snapshot.connectionState) {
                       case ConnectionState.none:
-                        return Text('获取位置中');
+                        return const Text('获取位置中');
                       case ConnectionState.active:
                       case ConnectionState.waiting:
-                        return CupertinoActivityIndicator();
+                        return const CupertinoActivityIndicator();
                       case ConnectionState.done:
-                        if (snapshot.hasError) return Text('Future错误');
+                        if (snapshot.hasError) return const Text('Future错误');
                         return _lostNearByList.length != 0
                             ? ListView.separated(
                                 // 这个pagestorage可以保持页面位置
-                                key: new PageStorageKey<String>(
+                                key: const PageStorageKey<String>(
                                     "LostNearByList"),
                                 itemCount: _lostNearByList.length,
-                                separatorBuilder: (context, i) => new Divider(),
+                                separatorBuilder: (context, i) =>
+                                    const Divider(),
                                 itemBuilder: (context, index) => _rowBuilder(
                                     context,
                                     index,
@@ -614,13 +629,12 @@ class LostListState extends State<LostList>
                                     null),
                               )
                             : Center(
-                                child: OutlineButton(
+                                child: OutlinedButton(
                                   onPressed: () async => _refreshNearBy(),
-                                  child: Text("没有数据，重新加载！"),
+                                  child: const Text("没有数据，重新加载！"),
                                 ),
                               );
                     }
-                    return null; // unreachable
                   },
                 ),
                 onRefresh: () async => _refreshNearBy(),
@@ -628,28 +642,28 @@ class LostListState extends State<LostList>
             ),
           )
         ]),
-        appBar: new AppBar(
+        appBar: AppBar(
           title: getTabBar(),
           centerTitle: true,
 //          actions: <Widget>[
-//            new Container(
-//              child: new IconButton(
-//                icon: new Icon(Icons.share),
+//            Container(
+//              child: IconButton(
+//                icon: Icon(Icons.share),
 //                onPressed: () {
 //                  showDialog(
 //                    context: context,
-//                    builder: (_) => new AlertDialog(
-//                            title: new Text("分享测试"),
-//                            content: new Text("领袖门徒测试中"),
+//                    builder: (_) => AlertDialog(
+//                            title: Text("分享测试"),
+//                            content: Text("领袖门徒测试中"),
 //                            actions: <Widget>[
-//                              new FlatButton(
-//                                child: new Text("取消"),
+//                              TextButton(
+//                                child: Text("取消"),
 //                                onPressed: () {
 //                                  Navigator.of(context).pop();
 //                                },
 //                              ),
-//                              new FlatButton(
-//                                child: new Text("确定"),
+//                              TextButton(
+//                                child: Text("确定"),
 //                                onPressed: () {
 //                                  Navigator.of(context).pop();
 //                                },
@@ -669,26 +683,27 @@ class LostListState extends State<LostList>
         // 设置放在这里
         drawer: Drawer(
           child: Container(
+            color: Colors.white,
             child: ListView(
               children: <Widget>[
                 Container(
+                  height: 80.0,
+                  margin: const EdgeInsets.all(0.0),
+                  padding: const EdgeInsets.all(0.0),
                   child: DrawerHeader(
-                    child: new Text(
-                      "系统设置",
-                      style: TextStyle(color: Colors.white),
-                    ),
                     decoration: BoxDecoration(
                       color: Theme.of(context).primaryColor,
                     ),
+                    child: const Text(
+                      "系统设置",
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
-                  height: 80.0,
-                  margin: EdgeInsets.all(0.0),
-                  padding: EdgeInsets.all(0.0),
                 ),
                 ListTile(
                   dense: true,
-                  title: Text("重置列表"),
-                  leading: Icon(Icons.settings_backup_restore),
+                  title: const Text("重置列表"),
+                  leading: const Icon(Icons.settings_backup_restore),
                   onTap: () {
                     _refreshLatest(reset: true, showSnack: false);
                     _refreshTop(reset: true, showSnack: false);
@@ -698,12 +713,13 @@ class LostListState extends State<LostList>
                 ),
                 ListTile(
                   dense: true,
-                  leading: Icon(Icons.settings_remote),
+                  leading: const Icon(Icons.settings_remote),
                   title: const Text('单次请求条数'),
                   trailing: DropdownButton<int>(
                     value: _defaultPageSize,
                     isDense: true,
-                    onChanged: (int newValue) {
+                    onChanged: (int? newValue) {
+                      if (newValue == null) return;
                       _defaultPageSize = newValue;
                       _lostLatestPageSize = newValue;
                       _lostTopPageSize = newValue;
@@ -718,7 +734,7 @@ class LostListState extends State<LostList>
                         value: value,
                         child: Text(
                           "$value条",
-                          style: TextStyle(fontSize: 12.0),
+                          style: const TextStyle(fontSize: 12.0),
                         ),
                       );
                     }).toList(),
@@ -726,13 +742,13 @@ class LostListState extends State<LostList>
                 ),
                 ListTile(
                   dense: true,
-                  title: Text("获取位置（GPS热身）"),
-                  leading: Icon(Icons.my_location),
+                  title: const Text("获取位置（GPS热身）"),
+                  leading: const Icon(Icons.my_location),
                   onTap: () {
                     _showSnack("已请求GPS。");
-                    Geolocator()
-                        .getCurrentPosition(
-                            desiredAccuracy: LocationAccuracy.high)
+                    Geolocator.getCurrentPosition(
+                            locationSettings: const LocationSettings(
+                                accuracy: LocationAccuracy.high))
                         .then((_) {
                       _showSnack("GPS热身完成");
                     }).catchError((e) {
@@ -741,7 +757,7 @@ class LostListState extends State<LostList>
                     Navigator.pop(context);
                   },
                 ),
-                Divider(),
+                const Divider(),
                 SwitchListTile(
                   dense: true,
                   value: _lianDong,
@@ -750,8 +766,8 @@ class LostListState extends State<LostList>
                       _lianDong = value;
                     });
                   },
-                  title: Text("领袖门徒模式"),
-                  secondary: Icon(Icons.landscape),
+                  title: const Text("领袖门徒模式"),
+                  secondary: const Icon(Icons.landscape),
                 ),
 //                SizedBox(
 //                  height: 40.0,
@@ -765,21 +781,20 @@ class LostListState extends State<LostList>
 //                )
               ],
             ),
-            color: Colors.white,
           ),
         ),
         floatingActionButton: FloatingActionButton.extended(
           elevation: 4.0,
-          icon: Icon(
+          icon: const Icon(
             Icons.flash_on,
             size: 18.0,
           ),
-          label: Text(
+          label: const Text(
             '立即发布',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0),
           ),
           onPressed: () async {
-            ReportAction result = await Navigator.push(
+            ReportAction? result = await Navigator.push(
               context,
               MaterialPageRoute<ReportAction>(
                 builder: (context) => LostReport(),

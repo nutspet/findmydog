@@ -127,9 +127,10 @@ abstract class Dog {
     '白色',
   ];
 
-  String breed; // 品种
-  String size; // 尺寸
-  String color; // 颜色
+  // 空安全：字段必须有初始值，空构造（new Dog()）才是合法的
+  String breed = ''; // 品种
+  String size = ''; // 尺寸
+  String color = ''; // 颜色
   List<Pic> pic = []; // 图片
 
   Dog();

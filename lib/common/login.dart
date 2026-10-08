@@ -1,21 +1,23 @@
-import 'package:find_dog/common/request.dart';
-import 'package:flutter_udid/flutter_udid.dart';
 import 'dart:io' show Platform;
+
+import 'package:flutter_udid/flutter_udid.dart';
+
 import 'basis.dart';
+import 'request.dart';
 
 // 登录状态的单例
 class Login {
   // 登录的uuid
-  String uuid;
+  String uuid = '';
   // 是否手机验证 相当于注册会员
-  bool mobileVerify;
+  bool mobileVerify = false;
   // 存jwt
-  String jwt;
-  // 登录状态
-  Future<void> status;
+  String jwt = '';
+  // 登录状态（在命名构造函数里赋值，所以用 late）
+  late Future<void> status;
 
   // 实例化
-  static final Login _login = new Login._internal();
+  static final Login _login = Login._internal();
 
   factory Login() {
     return _login;
@@ -28,9 +30,9 @@ class Login {
 
   // 核心静态登录方法
   Future<void> doLogin(
-      {FailHandler fail,
-      SuccessVoidHandler success,
-      CompleteHandler complete}) async {
+      {FailHandler? fail,
+      SuccessVoidHandler? success,
+      CompleteHandler? complete}) async {
     String deviceId = await initDeviceId();
     String platform = initPlatform();
     Request api = Request();
@@ -55,9 +57,9 @@ class Login {
   }
 
   // debug 看看jwt值
-  debug() {
+  void debug() {
     print("has login debug");
-    print("jwt_$this.jwt");
+    print("jwt_${this.jwt}");
   }
 
   // 获得设备ID
