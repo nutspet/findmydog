@@ -1,0 +1,19 @@
+# 静态分析配置：使用官方推荐规则集 flutter_lints。
+# 详见 https://dart.dev/tools/linter-rules
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # 历史代码里存在大量 print 调试语句，先降级为提示而非错误，
+    # 避免阻塞迁移；后续可逐步清理。
+    avoid_print: ignore
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    # 与旧代码风格冲突较大的规则在此显式关闭，保持“稳妥兼容”。
+    # 迁移完成后可逐条打开。
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
