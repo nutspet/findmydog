@@ -1,16 +1,33 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_picker_plus/flutter_picker_plus.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:find_dog/common/request.dart';
-import 'package:find_dog/models/dog.dart';
+
+import 'package:find_dog/bloc/dog_bloc.dart';
+import 'package:find_dog/bloc/dog_lost_bloc.dart';
+import 'package:find_dog/bloc/dog_lost_event.dart';
 import 'package:find_dog/models/dog_lost.dart';
-import 'package:find_dog/models/location.dart';
-import 'detail.dart';
+import 'package:find_dog/models/dog_lost_near_by_selection.dart';
+import 'package:find_dog/models/dog_lost_selection.dart';
+import 'package:find_dog/models/dog_selection.dart';
+import 'package:find_dog/widgets/bottom_loader.dart';
+
+import 'lost_list_item.dart';
+import 'lost_list_picker.dart';
 import 'report.dart';
 
-// 失踪汪救助中心
+// 失踪汪救助中心（列表页外壳）
+//
+// 本次改造把这一页从「在 State 里手工维护三套 _xxxPage / _xxxEnd / _xxxList」
+// 换成了 BLoC：
+//   - 数据 / 分页游标 / 当前筛选 全部收敛进 DogState，页面只负责渲染
+//   - 三个 tab 各自一个 bloc，互不干扰，复用同一个泛型基类 DogFetchBloc
+//   - 交互按 BLoC 版行为：滑到 90% 自动加载下一页 + 下拉刷新重置，
+//     去掉底部"加载更多数据"按钮
+//
+// 视觉（行高、字号、颜色、间距、抽屉、FAB）与改造前逐项保持一致。
 class LostList extends StatefulWidget {
   const LostList({super.key});
 
@@ -34,195 +51,189 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
   final GlobalKey<RefreshIndicatorState> _refreshNearByIndicatorKey =
       GlobalKey<RefreshIndicatorState>();
 
-  // 列表配置 小图后缀
-  final String _listImgSuffix = "?imageView2/2/w/180/h/180/q/90/format/webp";
+  // 三个 tab 各自的 bloc。
+  //
+  // ⚠️ 必须由这个 State 持有，不能写成 build 里的 `BlocProvider.create`：
+  // TabBarView 内部是 PageView，离开视口的子树会被销毁 ——
+  // bloc 若挂在 tab 子树里，切走再切回来数据就全丢了
+  // （改造前数据挂在 LostListState 上，是不会丢的）。
+  final DogLostLatestFetchBloc _latestBloc = DogLostLatestFetchBloc();
+  final DogLostTopFetchBloc _topBloc = DogLostTopFetchBloc();
+  final DogLostNearByFetchBloc _nearByBloc = DogLostNearByFetchBloc();
 
-  // 选项 没有es6的...展开方便
-  List<String> dogGender = ["全部性别"]..addAll(DogLost.DogGender.values.toList());
-  List<String> dogColor = ["全部颜色"]..addAll(Dog.DogColor);
-  List<Map<String, List>> dogSizeBreed = [
-    {
-      '全部': ['全部品种'],
-    }
-  ]..addAll(Dog.DogSizeBreed);
+  // 三个列表的滚动控制器：判断"滑到底部"，以及重置后滚回顶部
+  final ScrollController _latestScroll = ScrollController();
+  final ScrollController _topScroll = ScrollController();
+  final ScrollController _nearByScroll = ScrollController();
 
   // drawer里面的彩蛋
   bool _lianDong = false;
+
+  // 抽屉里可调的"单次请求条数"
   int _defaultPageSize = 25;
-
-  // 最新失踪狗狗列表
-  int _lostLatestPage = 1;
-  int _lostLatestPageSize = 25;
-  bool _lostLatestEnd = false;
-  List<DogLost> _lostLatestList = [];
-
-  // 最新选项
-  static const _pickerExtra = "全部区域";
-  String _lostLatestPickerText = _pickerExtra;
-  String _lostLatestProvince = _pickerExtra;
-  String _lostLatestCity = _pickerExtra;
-  String _lostLatestArea = _pickerExtra;
-  // 记录地区选择器上次的选中项，供 Picker 的 selecteds 复用（该能力目前在 UI 上是关掉的，
-  // 所以只写不读；保留字段是为了随时能把 selecteds 打开）。
-  // ignore: unused_field
-  List<int> _lostLatestPicker = [0, 0, 0];
-  int _lostLatestGender = 0;
-  int _lostLatestColor = 0;
-  int _lostLatestSize = 0;
-  String _lostLatestSizeName = '全部';
-  int _lostLatestBreed = 0;
-
-  // 附近
-  List<DogLost> _lostNearByList = [];
-
-  //  悬赏最高狗狗列表
-  int _lostTopPage = 1;
-  int _lostTopPageSize = 25;
-  bool _lostTopEnd = false;
-  List<DogLost> _lostTopList = [];
-
-  LostListState() {
-    // 数据获取测试 第一次不出snack 舒服点
-    _refreshLatest(showSnack: false);
-    _refreshTop(showSnack: false);
-  }
 
   @override
   void initState() {
     // 初始化TAB控制器
     controller = TabController(length: 3, vsync: this);
     // 加入监听 到了附近tab获取位置
-    controller.addListener(() {
-      if (controller.indexIsChanging && controller.index == 2) {
-        _refreshNearBy(showSnack: false);
-      }
-    });
+    controller.addListener(_onTabChanged);
+
+    _latestScroll.addListener(_onLatestScroll);
+    _topScroll.addListener(_onTopScroll);
+
+    // 首屏静默拉取（与改造前一致：第一次不弹 snack）
+    _resetLatest();
+    _resetTop();
+
     super.initState();
   }
 
-  Future<void>? _futureNearBy;
+  @override
+  void dispose() {
+    controller
+      ..removeListener(_onTabChanged)
+      ..dispose();
+    _latestScroll
+      ..removeListener(_onLatestScroll)
+      ..dispose();
+    _topScroll
+      ..removeListener(_onTopScroll)
+      ..dispose();
+    _nearByScroll.dispose();
+    // bloc 由本 State 手动 close（provider 用的是 .value，不会帮忙关）
+    _latestBloc.close();
+    _topBloc.close();
+    _nearByBloc.close();
+    super.dispose();
+  }
 
-  // 处理地址位置
-  // 因为没有load more 读取时间长 所以用future builder展示
-  void _refreshNearBy({bool showSnack = true}) async {
-    print("location");
-//    double longitude = 121.4402864;
-//    double latitude = 31.365503;
+  // ==================== 触发取数 ====================
+
+  void _resetLatest() => _latestBloc
+      .add(DogLostLatestFetchWithResetEvent(pageSize: _defaultPageSize));
+
+  void _resetTop() =>
+      _topBloc.add(DogLostTopFetchWithResetEvent(pageSize: _defaultPageSize));
+
+  /// 最新的筛选变了：整体替换筛选条件并回到第一页
+  void _onLatestSelectionChanged(DogLostSelection selection) {
+    _latestBloc.add(DogLostLatestFetchWithResetEvent(
+      selection: selection,
+      pageSize: _defaultPageSize,
+    ));
+  }
+
+  /// 触发一次重置，并等它真正跑完 —— 下拉刷新的转圈要一直转到数据回来。
+  Future<void> _awaitFetch<
+      B extends DogFetchBloc<DogFetchEventAbstract<S>, DogLost, S>,
+      S extends DogSelection<S>>(B bloc, DogFetchEventAbstract<S> event) async {
+    bloc.add(event);
     try {
-      final Position? position =
-          await Geolocator.getLastKnownPosition();
-      // 异步跑下次可以获取到（火并忘，避免阻塞主流程）
+      await bloc.stream.firstWhere(
+        (DogState<DogLost, S> s) =>
+            s.status == DogStatus.success || s.status == DogStatus.failure,
+      );
+    } catch (_) {
+      // 页面已销毁 / bloc 已 close 时流会直接关闭，firstWhere 抛 StateError。
+      // 静默收场，别把异常抛进 RefreshIndicator。
+      return;
+    }
+  }
+
+  Future<void> _refreshLatest() => _awaitFetch<DogLostLatestFetchBloc,
+      DogLostSelection>(
+    _latestBloc,
+    DogLostLatestFetchWithResetEvent(pageSize: _defaultPageSize),
+  );
+
+  Future<void> _refreshTop() =>
+      _awaitFetch<DogLostTopFetchBloc, DogLostSelection>(
+        _topBloc,
+        DogLostTopFetchWithResetEvent(pageSize: _defaultPageSize),
+      );
+
+  /// 附近：先拿定位，再交给 bloc。
+  ///
+  /// 附近接口一次给 100 条且**不分页**（线上实测 data 里只有 list、忽略 page），
+  /// 所以它只有"重置"语义。
+  Future<void> _refreshNearBy() async {
+    try {
+      final Position? position = await Geolocator.getLastKnownPosition();
+      if (!mounted) return;
+      // 顺带热一下 GPS：不等结果，失败了也不影响主流程（与改造前一致）
       Geolocator.getCurrentPosition(
         locationSettings:
             const LocationSettings(accuracy: LocationAccuracy.high),
-      ).then((_) {}, onError: (Object e) {
-        print("current position");
+      ).then((Position _) {}, onError: (Object e) {
+        // GPS 热身失败无所谓，下面用的是 lastKnownPosition
       });
       if (position == null) {
         _showSnack("获取位置失败！请稍后重试！");
         return;
       }
-      print(position.longitude);
-      print(position.latitude);
-      Request api = Request();
-      _futureNearBy = api.req("/lost/nearby2", data: {
-        "longitude": position.longitude,
-        "latitude": position.latitude
-      }, success: (res) {
-        // 加载数据
-        List list = res["list"];
-        List<DogLost> apiList = list.map((e) {
-          return DogLost.fromJson(e);
-        }).toList();
-        this.setState(() {
-          _lostNearByList = apiList;
-          //_lostEnd = true;
-          // 提示
-          if (showSnack) {
-            _showSnack("数据加载完成！");
-          }
-        });
-      }, fail: (message) {
-        _showSnack("错误：$message");
-      });
+      await _awaitFetch<DogLostNearByFetchBloc, DogLostNearBySelection>(
+        _nearByBloc,
+        DogLostNearByFetchWithResetEvent(
+          selection: DogLostNearBySelection(
+            longitude: position.longitude,
+            latitude: position.latitude,
+          ),
+        ),
+      );
     } catch (e) {
       _showSnack("获取位置失败！请稍后重试！");
     }
   }
 
-  @override
-  void dispose() {
-    // Dispose of the Tab Controller
-    controller.dispose();
-    super.dispose();
+  // ==================== 滚动到底 → 自动加载下一页 ====================
+
+  void _onLatestScroll() {
+    if (_isBottom(_latestScroll)) {
+      _latestBloc.add(const DogLostLatestFetchEvent());
+    }
   }
 
-  // 获取最新迷路狗狗数据
-  void _refreshLatest({bool reset = false, bool showSnack = true}) {
-    if (reset) _lostLatestPage = 1;
-    Request api = Request();
-    Map<String, dynamic> data = {
-      "page": _lostLatestPage++,
-      "pageSize": _lostLatestPageSize,
-    };
-    if (_lostLatestColor != 0) {
-      data["color"] = _lostLatestColor - 1;
+  void _onTopScroll() {
+    if (_isBottom(_topScroll)) {
+      _topBloc.add(const DogLostTopFetchEvent());
     }
-    if (_lostLatestGender != 0) {
-      data["gender"] = _lostLatestGender - 1;
-    }
-    if (_lostLatestSize != 0) {
-      data["size"] = _lostLatestSize - 1;
-    }
-    if (_lostLatestBreed != 0) {
-      data["breed"] = _lostLatestBreed - 1;
-    }
-    if (_lostLatestProvince != _pickerExtra) {
-      data["reionProvince"] = _lostLatestProvince;
-    }
-    if (_lostLatestCity != _pickerExtra) {
-      data["regionCity"] = _lostLatestCity;
-    }
-    if (_lostLatestArea != _pickerExtra) {
-      data["regionArea"] = _lostLatestArea;
-    }
+  }
 
-    print(data);
+  /// 滑过 90% 就认为"到底了"。
+  ///
+  /// 防抖不在这里做：bloc 那侧给滚动事件挂了 throttle + droppable，
+  /// 快速滑动即使触发很多次，也只会有一个请求真正打出去。
+  bool _isBottom(ScrollController controller) {
+    if (!controller.hasClients) return false;
+    final double maxScroll = controller.position.maxScrollExtent;
+    return controller.offset >= maxScroll * 0.9;
+  }
 
-    // 增加一个返回值 可以让future builder使用起来
-    api.req("/lost/latest2", data: data, success: (res) {
-      // 加载数据
-      List list = res["list"];
-      List<DogLost> apiList = list.map((e) {
-        return DogLost.fromJson(e);
-      }).toList();
-      this.setState(() {
-        if (reset) {
-          // 替换
-          _lostLatestList = apiList;
-        } else {
-          // 合并
-          _lostLatestList.addAll(apiList);
-        }
+  // ==================== 状态回调 ====================
 
-        // 是否加载完毕
-        _lostLatestEnd = res["list"].length < _lostLatestPageSize;
-        //_lostEnd = true;
-        // 提示
-        if (showSnack) {
-          _showSnack("数据加载完成！");
-        }
-      });
-    }, fail: (message) {
-      _showSnack("错误：$message");
-    });
+  /// 列表状态变化时的副作用：
+  /// 失败弹提示；重置成功后把列表滚回顶部。
+  void _onListStateChanged<S extends DogSelection<S>>(
+    DogState<DogLost, S> state,
+    ScrollController scrollController,
+  ) {
+    if (state.status == DogStatus.failure) {
+      _showSnack("错误：${state.errorMessage ?? ''}");
+    }
+    // reset 只在"重置"类事件产出的状态里为 true（滚动加载产出的是 false），
+    // 所以这里不会在往下翻页时把列表拽回顶部。
+    if (state.reset &&
+        state.status == DogStatus.success &&
+        scrollController.hasClients) {
+      scrollController.jumpTo(0);
+    }
   }
 
   // 提示
   void _showSnack(String txt) {
     // ScaffoldState.showSnackBar 已在 Flutter 3.x 中移除，改用 ScaffoldMessenger。
-    // 这里额外判断 mounted：LostListState 的构造函数里就会发起首次请求，
-    // 回调返回时组件可能尚未挂载（或已被销毁）。
+    // 这里额外判断 mounted：回调返回时组件可能已被销毁。
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -232,38 +243,173 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
     );
   }
 
-  // 获取赏金最高狗狗数据
-  void _refreshTop({bool reset = false, bool showSnack = true}) {
-    if (reset) _lostTopPage = 1;
-    Request api = Request();
-    api.req("/lost/top_reward2", data: {
-      "page": _lostTopPage++,
-      "pageSize": _lostTopPageSize,
-    }, success: (res) {
-      // 加载数据
-      List list = res["list"];
-      List<DogLost> apiList = list.map((e) {
-        return DogLost.fromJson(e);
-      }).toList();
-      this.setState(() {
-        if (reset) {
-          // 替换
-          _lostTopList = apiList;
-        } else {
-          // 合并
-          _lostTopList.addAll(apiList);
-        }
+  void _onTabChanged() {
+    // 到了附近tab获取位置（与改造前一致：切进来就重新拉一次）
+    if (controller.indexIsChanging && controller.index == 2) {
+      unawaited(_refreshNearBy());
+    }
+  }
 
-        // 是否加载完毕
-        _lostTopEnd = res["list"].length < _lostTopPageSize;
-        // 提示
-        if (showSnack) {
-          _showSnack("数据加载完成！");
-        }
-      });
-    }, fail: (message) {
-      _showSnack("错误：$message");
-    });
+  // ==================== 列表渲染 ====================
+
+  Widget _buildListBody({
+    required DogStatus status,
+    required List<DogLost> dogs,
+    required bool hasMore,
+    required ScrollController scrollController,
+    required String storageKey,
+    required VoidCallback onRetry,
+  }) {
+    // 有数据就先渲染数据 —— 翻页/刷新失败时不应该把已加载的列表清空
+    if (dogs.isNotEmpty) {
+      return ListView.separated(
+        // 这个pagestorage可以保持页面位置
+        key: PageStorageKey<String>(storageKey),
+        controller: scrollController,
+        // 还有下一页时在末尾挂一个转圈项；滑到底自动加载，不再需要"加载更多"按钮
+        itemCount: hasMore ? dogs.length + 1 : dogs.length,
+        separatorBuilder: (BuildContext context, int i) => const Divider(),
+        itemBuilder: (BuildContext context, int index) {
+          if (index >= dogs.length) return const BottomLoader();
+          return LostListItem(dog: dogs[index]);
+        },
+      );
+    }
+
+    // 还没出结果：首次加载 / 正在取数
+    if (status == DogStatus.initial || status == DogStatus.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    // 加载完了但一条都没有（或者失败且一无所有）：给个重新加载的入口
+    return Center(
+      child: OutlinedButton(
+        onPressed: onRetry,
+        child: const Text("没有数据，重新加载！"),
+      ),
+    );
+  }
+
+  Widget _buildLatestTab() {
+    return BlocConsumer<DogLostLatestFetchBloc,
+        DogState<DogLost, DogLostSelection>>(
+      listenWhen: (
+        DogState<DogLost, DogLostSelection> previous,
+        DogState<DogLost, DogLostSelection> current,
+      ) =>
+          previous.status != current.status || previous.reset != current.reset,
+      listener: (BuildContext context,
+              DogState<DogLost, DogLostSelection> state) =>
+          _onListStateChanged(state, _latestScroll),
+      builder: (BuildContext context,
+          DogState<DogLost, DogLostSelection> state) {
+        return Column(
+          children: <Widget>[
+            LostListPicker(
+              selection: state.selection ?? const DogLostSelection(),
+              onChanged: _onLatestSelectionChanged,
+            ),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.all(5.0),
+                child: RefreshIndicator(
+                  key: _refreshLatestIndicatorKey,
+                  onRefresh: _refreshLatest,
+                  child: _buildListBody(
+                    status: state.status,
+                    dogs: state.dogs,
+                    hasMore: state.hasMore,
+                    scrollController: _latestScroll,
+                    storageKey: "LostLatestList",
+                    onRetry: _resetLatest,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTopTab() {
+    return BlocConsumer<DogLostTopFetchBloc,
+        DogState<DogLost, DogLostSelection>>(
+      listenWhen: (
+        DogState<DogLost, DogLostSelection> previous,
+        DogState<DogLost, DogLostSelection> current,
+      ) =>
+          previous.status != current.status || previous.reset != current.reset,
+      listener: (BuildContext context,
+              DogState<DogLost, DogLostSelection> state) =>
+          _onListStateChanged(state, _topScroll),
+      builder: (BuildContext context, DogState<DogLost, DogLostSelection> state) {
+        return Container(
+          margin: const EdgeInsets.all(5.0),
+          child: RefreshIndicator(
+            key: _refreshTopIndicatorKey,
+            onRefresh: _refreshTop,
+            child: _buildListBody(
+              status: state.status,
+              dogs: state.dogs,
+              hasMore: state.hasMore,
+              scrollController: _topScroll,
+              storageKey: "LostTopList",
+              onRetry: _resetTop,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNearByTab() {
+    return BlocConsumer<DogLostNearByFetchBloc,
+        DogState<DogLost, DogLostNearBySelection>>(
+      listenWhen: (
+        DogState<DogLost, DogLostNearBySelection> previous,
+        DogState<DogLost, DogLostNearBySelection> current,
+      ) =>
+          previous.status != current.status || previous.reset != current.reset,
+      listener: (BuildContext context,
+              DogState<DogLost, DogLostNearBySelection> state) =>
+          _onListStateChanged(state, _nearByScroll),
+      builder: (BuildContext context,
+          DogState<DogLost, DogLostNearBySelection> state) {
+        return Container(
+          margin: const EdgeInsets.all(5.0),
+          child: RefreshIndicator(
+            key: _refreshNearByIndicatorKey,
+            onRefresh: _refreshNearBy,
+            child: _buildNearByBody(state),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNearByBody(DogState<DogLost, DogLostNearBySelection> state) {
+    // 该接口不分页，所以永远不会"还有下一页"
+    if (state.dogs.isNotEmpty) {
+      return _buildListBody(
+        status: state.status,
+        dogs: state.dogs,
+        hasMore: false,
+        scrollController: _nearByScroll,
+        storageKey: "LostNearByList",
+        onRetry: _refreshNearBy,
+      );
+    }
+    return switch (state.status) {
+      DogStatus.initial => const Center(child: Text('获取位置中')),
+      DogStatus.loading => const Center(child: CupertinoActivityIndicator()),
+      DogStatus.success || DogStatus.failure => Center(
+          child: OutlinedButton(
+            onPressed: _refreshNearBy,
+            child: const Text("没有数据，重新加载！"),
+          ),
+        ),
+    };
   }
 
   // 获得tabbar
@@ -291,394 +437,28 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
     );
   }
 
-  // 获得tabview本体
-  TabBarView getTabBarView(List<Tab> tabs) {
-    return TabBarView(
-      // Add tabs as widgets
-      children: tabs,
-      // set the controller
-      controller: controller,
-    );
-  }
-
-  // 生成单条数据的回调
-  // 追求MD的风格用loadmore的按钮 思考了很久
-  // "上海市 闸北区第一中学小学附近 2岁黑色 卡哇伊（公）"
-  Widget _rowBuilder(BuildContext context, int index, List<DogLost> list,
-      bool end, VoidCallback? onPress) {
-    if (index == list.length) {
-      return Container(
-        width: 60.0,
-        padding: const EdgeInsets.all(10.0),
-        child: ElevatedButton.icon(
-          onPressed: end ? null : onPress,
-          label: end ? const Text("已到最底部") : const Text("加载更多数据"),
-          icon: end ? const Icon(Icons.done) : const Icon(Icons.expand_more),
-        ),
-      );
-    } else {
-      return ListTile(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => LostDetail(
-                dog: list[index],
-              ),
-            ),
-          );
-        },
-        isThreeLine: true,
-        dense: true,
-        leading: Container(
-          width: 60.0,
-          height: 60.0,
-          child: list[index].pic.isNotEmpty
-              ? CachedNetworkImage(
-                  imageUrl: "${list[index].pic[0].link}$_listImgSuffix",
-                  placeholder: (context, url) =>
-                      const CupertinoActivityIndicator(),
-                  errorWidget: (context, url, error) =>
-                      const Icon(Icons.error),
-                )
-              : const FlutterLogo(),
-        ),
-        title: Padding(
-          padding: const EdgeInsets.only(bottom: 5.0, top: 1.0),
-          child: Text(
-            "${list[index].regionCity} ${list[index].locationName}附近 ${list[index].age}岁${list[index].color} ${list[index].breed}(${list[index].gender})",
-            overflow: TextOverflow.fade,
-            style: const TextStyle(
-                fontSize: 13.0,
-                fontWeight: FontWeight.w500,
-                color: Colors.black87),
-          ),
-        ),
-        subtitle: Row(
-          children: <Widget>[
-            Text("失踪时间 ${list[index].date} ${list[index].time}",
-                style: const TextStyle(
-                  fontSize: 12.0,
-                )),
-            Container(
-              height: 16.0,
-              width: 1.0,
-              color: Colors.black12,
-              margin: const EdgeInsets.only(left: 5.0, right: 5.0),
-            ),
-            list[index].negotiate
-                ? const Text(
-                    "面议",
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontSize: 12.0,
-                    ),
-                    overflow: TextOverflow.fade,
-                  )
-                : Text(
-                    "¥ ${list[index].reward}",
-                    style: const TextStyle(
-                      color: Colors.blueAccent,
-                      fontSize: 12.0,
-                    ),
-                    overflow: TextOverflow.fade,
-                  ),
-          ],
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    Picker locationPicker = Picker(
-        adapter:
-            PickerDataAdapter<String>(pickerData: convertPickerData(locations)),
-        changeToFirst: true,
-        textAlign: TextAlign.left,
-        confirmText: "确认",
-        cancelText: "取消",
-        columnPadding: const EdgeInsets.all(8.0),
-        // selecteds: _lostLatestPicker,
-        onConfirm: (Picker picker, List<int> value) {
-          print(value.toString());
-          print(picker.getSelectedValues());
-
-          setState(() {
-            _lostLatestProvince = picker.getSelectedValues()[0];
-            _lostLatestCity = picker.getSelectedValues()[1];
-            _lostLatestArea = picker.getSelectedValues()[2];
-            _lostLatestPicker = value;
-            // 展示字的逻辑
-            if (_lostLatestArea == _pickerExtra) {
-              if (_lostLatestCity == _pickerExtra) {
-                _lostLatestPickerText = _lostLatestProvince;
-              } else {
-                _lostLatestPickerText = _lostLatestCity;
-              }
-            } else {
-              _lostLatestPickerText = _lostLatestArea;
-            }
-
-            _refreshLatest(reset: true);
-          });
-        });
-    // print(MediaQuery.of(context));
-    return Scaffold(
+    // 三个 bloc 用 .value 挂上去（生命周期由本 State 管，见 dispose）。
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<DogLostLatestFetchBloc>.value(value: _latestBloc),
+        BlocProvider<DogLostTopFetchBloc>.value(value: _topBloc),
+        BlocProvider<DogLostNearByFetchBloc>.value(value: _nearByBloc),
+      ],
+      child: Scaffold(
         key: _scaffoldKey,
-        body: getTabBarView(<Tab>[
-          Tab(
-            child: Column(
-              // crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () {
-                          // 三级联动地区选择
-                          locationPicker.showModal(context);
-                        },
-                        child: Text(
-                          _lostLatestPickerText,
-                          style: const TextStyle(
-                              fontSize: 12.0, color: Colors.black54),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () {
-                          Picker(
-                              adapter: PickerDataAdapter<String>(
-                                  pickerData: dogSizeBreed),
-                              // changeToFirst: true,
-                              confirmText: "确认",
-                              cancelText: "取消",
-                              textAlign: TextAlign.left,
-                              columnPadding: const EdgeInsets.all(8.0),
-                              // selecteds: [_lostLatestSize, _lostLatestBreed],
-                              onConfirm: (Picker picker, List<int> value) {
-                                //print(value.toString());
-                                //print(picker.getSelectedValues());
-                                setState(() {
-                                  _lostLatestSize = value[0];
-                                  _lostLatestSizeName =
-                                      picker.getSelectedValues()[0];
-                                  _lostLatestBreed = value[1];
-                                  _refreshLatest(reset: true);
-                                });
-                              }).showModal(context);
-                        },
-                        child: Text(
-                          '${dogSizeBreed[_lostLatestSize][_lostLatestSizeName]?[_lostLatestBreed] ?? ''}',
-                          style: const TextStyle(
-                              fontSize: 12.0, color: Colors.black54),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () {
-                          Picker(
-                              adapter: PickerDataAdapter<String>(
-                                  pickerData: [dogColor], isArray: true),
-                              // hideHeader: false,
-                              selecteds: [_lostLatestColor],
-                              confirmText: "确认",
-                              cancelText: "取消",
-                              // onSelect: ,
-                              // title: Text("选择颜色"),
-                              onConfirm: (Picker picker, List<int> value) {
-                                print(value.toString());
-                                print(picker.getSelectedValues());
-                                setState(() {
-                                  _lostLatestColor = value[0];
-                                  _refreshLatest(reset: true);
-                                });
-                              }).showModal(context);
-                        },
-                        child: Text(
-                          dogColor[_lostLatestColor],
-                          style: const TextStyle(
-                              fontSize: 12.0, color: Colors.black54),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () {
-                          Picker(
-                              adapter: PickerDataAdapter<String>(
-                                  pickerData: [dogGender], isArray: true),
-                              // hideHeader: true,
-                              selecteds: [_lostLatestGender],
-                              confirmText: "确认",
-                              cancelText: "取消",
-                              // onSelect: ,
-                              // title: Text("选择性别"),
-                              onConfirm: (Picker picker, List<int> value) {
-                                print(value.toString());
-                                print(picker.getSelectedValues());
-                                setState(() {
-                                  _lostLatestGender = value[0];
-                                  _refreshLatest(reset: true);
-                                });
-                              }).showModal(context);
-                        },
-                        child: Text(
-                          dogGender[_lostLatestGender],
-                          style: const TextStyle(
-                              fontSize: 12.0, color: Colors.black54),
-                        ),
-                      ),
-                    )
-                  ],
-                ),
-                // 一定要撑开
-                Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.all(5.0),
-                    //color: Colors.red,
-                    child: RefreshIndicator(
-                      key: _refreshLatestIndicatorKey,
-                      child: _lostLatestList.length != 0
-                          ? ListView.separated(
-                              // 这个pagestorage可以保持页面位置
-                              key: const PageStorageKey<String>("LostLatestList"),
-                              itemCount: _lostLatestList.length + 1,
-                              separatorBuilder: (context, i) => const Divider(),
-                              itemBuilder: (context, index) => _rowBuilder(
-                                    context,
-                                    index,
-                                    _lostLatestList,
-                                    _lostLatestEnd,
-                                    _refreshLatest,
-                                  ),
-                            )
-                          : Center(
-                              child: OutlinedButton(
-                                onPressed: () async =>
-                                    _refreshLatest(reset: true),
-                                child: const Text("没有数据，重新加载！"),
-                              ),
-                            ),
-                      onRefresh: () async => _refreshLatest(reset: true),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Tab(
-            child: Container(
-              margin: const EdgeInsets.all(5.0),
-              //color: Colors.red,
-              child: RefreshIndicator(
-                key: _refreshTopIndicatorKey,
-                child: _lostTopList.length != 0
-                    ? ListView.separated(
-                        // 这个pagestorage可以保持页面位置
-                        key: const PageStorageKey<String>("LostTopList"),
-                        itemCount: _lostTopList.length + 1,
-                        separatorBuilder: (context, i) => const Divider(),
-                        itemBuilder: (context, index) => _rowBuilder(context,
-                            index, _lostTopList, _lostTopEnd, _refreshTop),
-                      )
-                    : Center(
-                        child: OutlinedButton(
-                          onPressed: () async => _refreshTop(reset: true),
-                          child: const Text("没有数据，重新加载！"),
-                        ),
-                      ),
-                onRefresh: () async => _refreshTop(reset: true),
-              ),
-            ),
-          ),
-          Tab(
-            child: Container(
-              margin: const EdgeInsets.all(5.0),
-              child: RefreshIndicator(
-                key: _refreshNearByIndicatorKey,
-                child: FutureBuilder<void>(
-                  future:
-                      _futureNearBy, // a previously-obtained Future<String> or null
-                  builder:
-                      (BuildContext context, AsyncSnapshot<void> snapshot) {
-                    switch (snapshot.connectionState) {
-                      case ConnectionState.none:
-                        return const Text('获取位置中');
-                      case ConnectionState.active:
-                      case ConnectionState.waiting:
-                        return const CupertinoActivityIndicator();
-                      case ConnectionState.done:
-                        if (snapshot.hasError) return const Text('Future错误');
-                        return _lostNearByList.length != 0
-                            ? ListView.separated(
-                                // 这个pagestorage可以保持页面位置
-                                key: const PageStorageKey<String>(
-                                    "LostNearByList"),
-                                itemCount: _lostNearByList.length,
-                                separatorBuilder: (context, i) =>
-                                    const Divider(),
-                                itemBuilder: (context, index) => _rowBuilder(
-                                    context,
-                                    index,
-                                    _lostNearByList,
-                                    true,
-                                    null),
-                              )
-                            : Center(
-                                child: OutlinedButton(
-                                  onPressed: () async => _refreshNearBy(),
-                                  child: const Text("没有数据，重新加载！"),
-                                ),
-                              );
-                    }
-                  },
-                ),
-                onRefresh: () async => _refreshNearBy(),
-              ),
-            ),
-          )
-        ]),
+        body: TabBarView(
+          controller: controller,
+          children: <Widget>[
+            _buildLatestTab(),
+            _buildTopTab(),
+            _buildNearByTab(),
+          ],
+        ),
         appBar: AppBar(
           title: getTabBar(),
           centerTitle: true,
-//          actions: <Widget>[
-//            Container(
-//              child: IconButton(
-//                icon: Icon(Icons.share),
-//                onPressed: () {
-//                  showDialog(
-//                    context: context,
-//                    builder: (_) => AlertDialog(
-//                            title: Text("分享测试"),
-//                            content: Text("领袖门徒测试中"),
-//                            actions: <Widget>[
-//                              TextButton(
-//                                child: Text("取消"),
-//                                onPressed: () {
-//                                  Navigator.of(context).pop();
-//                                },
-//                              ),
-//                              TextButton(
-//                                child: Text("确定"),
-//                                onPressed: () {
-//                                  Navigator.of(context).pop();
-//                                },
-//                              )
-//                            ]),
-//                  );
-//                },
-//              ),
-//              alignment: Alignment.centerLeft,
-//              margin: const EdgeInsets.only(
-//                right: 15.0,
-//              ),
-//            ),
-//          ],
-          // bottom: getTabBar(),
         ),
         // 设置放在这里
         drawer: Drawer(
@@ -705,8 +485,8 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
                   title: const Text("重置列表"),
                   leading: const Icon(Icons.settings_backup_restore),
                   onTap: () {
-                    _refreshLatest(reset: true, showSnack: false);
-                    _refreshTop(reset: true, showSnack: false);
+                    _resetLatest();
+                    _resetTop();
                     _showSnack("全部重置完毕！");
                     Navigator.pop(context);
                   },
@@ -720,11 +500,11 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
                     isDense: true,
                     onChanged: (int? newValue) {
                       if (newValue == null) return;
-                      _defaultPageSize = newValue;
-                      _lostLatestPageSize = newValue;
-                      _lostTopPageSize = newValue;
-                      _refreshLatest(reset: true, showSnack: false);
-                      _refreshTop(reset: true, showSnack: false);
+                      setState(() {
+                        _defaultPageSize = newValue;
+                      });
+                      _resetLatest();
+                      _resetTop();
                       _showSnack("设置成功（$newValue条单次），并且全部重置完毕！");
                       Navigator.pop(context);
                     },
@@ -749,9 +529,9 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
                     Geolocator.getCurrentPosition(
                             locationSettings: const LocationSettings(
                                 accuracy: LocationAccuracy.high))
-                        .then((_) {
+                        .then((Position _) {
                       _showSnack("GPS热身完成");
-                    }).catchError((e) {
+                    }).catchError((Object e) {
                       _showSnack("GPS热身失败");
                     });
                     Navigator.pop(context);
@@ -761,7 +541,7 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
                 SwitchListTile(
                   dense: true,
                   value: _lianDong,
-                  onChanged: (value) {
+                  onChanged: (bool value) {
                     setState(() {
                       _lianDong = value;
                     });
@@ -769,16 +549,6 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
                   title: const Text("领袖门徒模式"),
                   secondary: const Icon(Icons.landscape),
                 ),
-//                SizedBox(
-//                  height: 40.0,
-//                ),
-//                Center(
-//                  child: Image(
-//                    image: AssetImage("data_repo/img/logo/logo.png"),
-//                    width: 100.0,
-//                    height: 100.0,
-//                  ),
-//                )
               ],
             ),
           ),
@@ -794,21 +564,23 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0),
           ),
           onPressed: () async {
-            ReportAction? result = await Navigator.push(
+            final ReportAction? result = await Navigator.push(
               context,
               MaterialPageRoute<ReportAction>(
                 builder: (context) => LostReport(),
                 fullscreenDialog: true,
               ),
             );
-            print(result);
+            if (!mounted) return;
             // 如果新增成功了 刷新页面
             if (result == ReportAction.success) {
-              _refreshLatest(reset: true, showSnack: false);
-              _refreshTop(reset: true, showSnack: false);
+              _resetLatest();
+              _resetTop();
               _showSnack("全部重置完毕！");
             }
           },
-        ));
+        ),
+      ),
+    );
   }
 }

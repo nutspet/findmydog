@@ -1,5 +1,7 @@
+import 'package:bloc/bloc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:find_dog/bloc/simple_bloc_observer.dart';
 import 'package:find_dog/common/login.dart';
 import 'package:find_dog/common/request.dart';
 import 'package:find_dog/screens/lost/list.dart';
@@ -15,6 +17,10 @@ final Fluwx _fluwx = Fluwx();
 void main() {
   // 插件（微信 SDK）要在 runApp 之前注册，必须先初始化绑定
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 列表页用的 bloc 全局观察者：只在 debug 构建打印事件/状态流转，便于排查。
+  // bloc 9 已移除 BlocOverrides.runZoned，直接赋值即可。
+  Bloc.observer = SimpleBlocObserver();
 
   FlutterError.onError = (errorDetails) {
     print("全局错误");
