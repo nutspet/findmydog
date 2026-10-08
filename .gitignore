@@ -2,6 +2,9 @@
 *.class
 *.lock
 *.log
+
+# 应用工程应提交 pubspec.lock 以锁定依赖版本（原 *.lock 规则会误伤）
+!pubspec.lock
 *.pyc
 *.swp
 .DS_Store
