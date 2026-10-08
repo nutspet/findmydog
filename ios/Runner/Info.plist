@@ -37,7 +37,12 @@
 	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
+		<!-- fluwx 6.x 要求：缺任何一个都会导致 canOpenURL 返回 false，
+		     微信相关的打开/跳转判定会失败（旧版 fluwx 只需要 weixin） -->
 		<string>weixin</string>
+		<string>wechat</string>
+		<string>weixinULAPI</string>
+		<string>weixinURLParamsAPI</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
