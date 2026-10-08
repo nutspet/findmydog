@@ -50,6 +50,17 @@ dependencies:
   webview_flutter: ^4.14.1
   # 微信分享
   fluwx: ^6.0.5
+  # ===== 状态管理（列表页 BLoC 架构，由 xungou_x 重构版移植而来）=====
+  # bloc 核心：直接用到 Bloc / Emitter / EventTransformer，所以要显式声明为直接依赖
+  bloc: ^9.2.1
+  # bloc 官方 Flutter 绑定：BlocProvider / BlocBuilder / BlocListener
+  flutter_bloc: ^9.1.1
+  # 事件并发策略（droppable 丢弃重复事件），0.3.0 对应 bloc ^9
+  bloc_concurrency: ^0.3.0
+  # 流变换工具，配合 bloc_concurrency 做 throttle
+  stream_transform: ^2.1.2
+  # 值相等语义（state / event 的比较基础），3.x 起不再自动比较 runtimeType
+  equatable: ^3.0.0
   # 备注：已移除 amap_base —— 代码中从未 import 且该包已停止维护；
   # 高德地图实际是通过 HTTP 静态图/地理编码接口在使用（见 map.dart / report.dart）。
   # 已移除 path_provider —— 代码中无直接引用（cached_network_image 缓存栈会间接引入）。
