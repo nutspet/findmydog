@@ -8,7 +8,7 @@ import 'dog_lost_selection.dart';
 /// 也最值得写断言的部分 —— 选择器下标与接口参数之间的映射。
 /// 拆出来之后：
 /// - UI（`screens/lost/lost_list_picker.dart`）只负责弹选择器、显示文案
-/// - 这些换算可以脱离 Flutter 被 `dart run` 直接跑（本机 `flutter test` 不可用）
+/// - 这些换算可以脱离 Flutter 被 `dart run` 直接跑，也可以由 `flutter test` 覆盖
 class DogLostFilter {
   const DogLostFilter._();
 

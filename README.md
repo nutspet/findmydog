@@ -46,13 +46,38 @@
 
 ### 迁移后需要人工确认的点
 
-* **Android / iOS 的构建配置未经过真机构建验证**（开发机没有 JDK / Android SDK / Xcode），是按 Flutter 3.47 官方模板逐项对齐的，首次构建仍建议在本机跑一遍 `flutter build apk --debug` 和 `pod install`。
+* **构建配置的验证进度**：Android 侧工具链已就位（JDK 17 + Android SDK：`platforms;android-36` / `build-tools;36.0.0` / `ndk;28.2.13676358`），并用 `gradlew projects`、`:app:preBuild`、`:app:DebugMinSdkCheck` 验证过 Gradle 配置自洽（AGP 9.1.0 / Gradle 9.3.1 / Kotlin 2.4.0 均能正常解析）；但**还没有真正产出过 APK**，首次出包仍建议在本机跑一遍 `flutter build apk --debug`。iOS 侧完全没有验证过（开发机无 Xcode），首次需要 `pod install`。
 * **机型覆盖范围收窄**：Android minSdk 21 → 24（不再支持 Android 5/6），iOS 8 → 15。这是 Flutter 3.47 的硬性要求，无法保留。
 * **微信 App ID 仍是占位符**：`lib/main.dart` 里 `registerApi(appId: "xxxxxxxxxxxxx")` 需要换成真实 App ID；iOS 侧还需要在 `Info.plist` 的 `CFBundleURLTypes` 里补一个 name 为 `weixin` 的 URL Type。
 * **发布签名**：`android/key.properties` 不在仓库里（见 .gitignore）。现在没有该文件时会自动回退到 debug 签名，正式发版前需要补上。
 * **iOS 版本号**仍硬编码在 `ios/Runner/Info.plist`（1.0.4 / 181218），没有改成 `$(FLUTTER_BUILD_NAME)`，以免上架版本号回退。
 * **未采用新的 SceneDelegate 生命周期**：Flutter 3.47 的模板已改为 scene-based（`UISceneStoryboardFile` + `SceneDelegate`），本工程仍是 `main.m` + `AppDelegate.m` 的传统方式，暂时可用，后续 Flutter 强制要求时需要迁移。
 * `lib/screens/planet/quick_start.dart`：原代码把 `javaScriptMode` 注释掉了（默认关闭 JS），而该 H5 页面是 React 单页应用，关闭 JS 必然白屏；本次已打开 JavaScript。
+
+## 2026-10：列表页 BLoC 改造
+
+把 `xungou_x` 重构版里基于 **flutter_bloc** 的列表页交互移植了过来，改造范围只限列表页，视觉保持不变：
+
+* 新增 `lib/bloc/`：`dog_bloc.dart` 是泛型基类（翻页 / 重置两套流程 + `throttle`+`droppable` 连击保护），`dog_lost_bloc.dart` 是「最新发布 / 悬赏最高 / 附近」三个具体 bloc。
+* 原来散落在 `LostListState` 里的三套 `_xxxPage / _xxxEnd / _xxxList` 收敛进不可变的 `DogState`，页面只负责渲染。
+* 交互改为「滑到 90% 自动加载下一页 + 下拉刷新」，去掉了底部"加载更多数据"按钮。
+* 筛选换算（`dog_lost_filter.dart`）与 query 构造（`dog_lost_query.dart`）抽成纯 Dart，便于脱离 Flutter 断言。
+
+### 跑测试
+
+```bash
+cd findmydog
+flutter test --reporter expanded
+```
+
+| 文件 | 覆盖内容 |
+| --- | --- |
+| `test/widget_test.dart` | 模型字段映射 / 空安全兜底、`Validate.phone`、两个纯展示页面 |
+| `test/lost_list_page_test.dart` | 列表页首屏、滑到底翻页（追加非替换）、短列表下拉刷新、抽屉重置、附近 tab 失败分支、空态 / 业务失败 / HTTP 5xx、筛选栏文案 |
+| `test/dog_fetch_bloc_test.dart` | BLoC 状态机：重置落地、末页吞掉滚动事件、翻页追加、翻页失败保留旧数据、连击只发一个请求 |
+| `test/support/fake_http.dart` | 测试用的假 HTTP 适配器（挂到 `Request.getInstance().getDio().httpClientAdapter`，**不必为可测性改生产代码**） |
+
+未覆盖（有意为之）：网络图片分支（`CachedNetworkImage` 依赖原生插件）、真实 GPS、详情页 / 发布页。
 
 ## 历史更新
 

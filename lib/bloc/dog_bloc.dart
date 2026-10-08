@@ -41,8 +41,9 @@ typedef FetchEventHandler<Model, Selection> = Future<ApiRepository<Model>>
 /// 「翻页」与「重置」两套流程抽在这里，子类只需声明事件、把 service 方法挂上去。
 ///
 /// 注意：本文件刻意**不 import Flutter**（只依赖 bloc / equatable / dio /
-/// stream_transform 这些纯 Dart 包）。这样状态机逻辑可以用 `dart run` 直接跑测试 ——
-/// 本机的 `flutter test` 因 Windows 管道限制不可用（见 README 迁移说明）。
+/// stream_transform 这些纯 Dart 包）。这样状态机逻辑既能被 `flutter test`
+/// 直接覆盖（见 test/dog_fetch_bloc_test.dart），也能脱离 Flutter 用
+/// `dart run` 单独跑断言 —— 少一层 UI 依赖，失败定位更干净。
 abstract class DogFetchBloc<
         Event extends DogFetchEventAbstract<Selection>,
         Model extends Dog,
