@@ -1,15 +1,29 @@
-include ':app'
+// Flutter 3.16+ 起，插件不再通过 .flutter-plugins 文件逐个 include，
+// 而是走 Flutter Gradle Plugin Loader（settings.gradle 的 pluginManagement）。
+// 旧写法（读取 .flutter-plugins / jcenter / AGP 3.2.1）在 Flutter 3.x 下已无法工作。
+pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        file("local.properties").withInputStream { properties.load(it) }
+        def flutterSdkPath = properties.getProperty("flutter.sdk")
+        assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+        return flutterSdkPath
+    }()
 
-def flutterProjectRoot = rootProject.projectDir.parentFile.toPath()
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
-def plugins = new Properties()
-def pluginsFile = new File(flutterProjectRoot.toFile(), '.flutter-plugins')
-if (pluginsFile.exists()) {
-    pluginsFile.withReader('UTF-8') { reader -> plugins.load(reader) }
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
 }
 
-plugins.each { name, path ->
-    def pluginDirectory = flutterProjectRoot.resolve(path).resolve('android').toFile()
-    include ":$name"
-    project(":$name").projectDir = pluginDirectory
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+    // 版本与当前 Flutter SDK（3.47.6）模板保持一致
+    id "com.android.application" version "9.1.0" apply false
+    id "org.jetbrains.kotlin.android" version "2.4.0" apply false
 }
+
+include ":app"

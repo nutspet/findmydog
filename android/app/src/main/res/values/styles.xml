@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 启动窗口主题。父主题保持工程原有的 Theme.Black.NoTitleBar，避免改变启动画面观感。 -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when
              Flutter draws its first frame -->
         <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <!-- 进程启动后立刻切到该主题，决定 Flutter UI 初始化期间（以及 UI 背后）的窗口底色。
+         v2 embedding 专用，AndroidManifest 里通过 NormalTheme 元数据引用。 -->
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>

@@ -1,80 +1,96 @@
+// Flutter 3.16+ 的现代写法：不再 apply from flutter.gradle，
+// 而是通过 plugin-loader 引入 dev.flutter.flutter-gradle-plugin。
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+// 读取 local.properties（flutter.sdk / flutter.versionCode / flutter.versionName 由 flutter 工具写入）
 def localProperties = new Properties()
-def localPropertiesFile = rootProject.file('local.properties')
+def localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader('UTF-8') { reader ->
+    localPropertiesFile.withReader("UTF-8") { reader ->
         localProperties.load(reader)
     }
 }
 
-def flutterRoot = localProperties.getProperty('flutter.sdk')
-if (flutterRoot == null) {
-    throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")
+// 签名配置是可选依赖：key.properties 不进仓库（见 .gitignore），
+// 旧代码无条件 load 会在配置阶段直接抛 FileNotFoundException。
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+def hasKeystore = keystorePropertiesFile.exists()
+if (hasKeystore) {
+    keystorePropertiesFile.withReader("UTF-8") { reader ->
+        keystoreProperties.load(reader)
+    }
 }
-
-def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
-if (flutterVersionCode == null) {
-    flutterVersionCode = '1'
-}
-
-def flutterVersionName = localProperties.getProperty('flutter.versionName')
-if (flutterVersionName == null) {
-    flutterVersionName = '1.0'
-}
-
-apply plugin: 'com.android.application'
-apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 
 android {
-    def keystorePropertiesFile = rootProject.file("key.properties")
-    def keystoreProperties = new Properties()
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    // AGP 8+ 起必须显式声明 namespace（原先写在 AndroidManifest 的 package 属性已废弃）
+    namespace = "cn.nutspet.finddog"
 
-    compileSdkVersion 28
+    // 跟随 Flutter SDK 模板版本：compileSdk 36 / minSdk 24 / targetSdk 36
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
 
-    lintOptions {
-        disable 'InvalidPackage'
+    compileOptions {
+        // Flutter 3.x 要求 Java 17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId "cn.nutspet.finddog"
-        minSdkVersion 21
-        targetSdkVersion 28
-        versionCode 2
-        versionName "1.0.2"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        applicationId = "cn.nutspet.finddog"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        // versionCode / versionName 统一由 pubspec.yaml 的 version 派生（单一来源）
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile file(keystoreProperties['storeFile'])
-            storePassword keystoreProperties['storePassword']
+            if (hasKeystore) {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storeFile = keystoreProperties["storeFile"] ? file(keystoreProperties["storeFile"]) : null
+                storePassword = keystoreProperties["storePassword"]
+            }
         }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            //signingConfig signingConfigs.debug
-            signingConfig signingConfigs.release
+            // 有 key.properties 就用正式签名，没有则回退到 debug 签名，
+            // 保证在没配签名的机器上 `flutter run --release` 依然可用
+            signingConfig = hasKeystore
+                    ? signingConfigs.getByName("release")
+                    : signingConfigs.getByName("debug")
         }
     }
 
-    lintOptions {
-        checkReleaseBuilds false
-        abortOnError false
+    // AGP 7 起 lintOptions 已改名为 lint；AGP 9 移除了旧名
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 }
 
 flutter {
-    source '../..'
+    source = "../.."
+}
+
+// Flutter Gradle Plugin 会自动给 app/lib 子工程套用 kotlin-android，
+// 这里把 Kotlin 的 jvmTarget 对齐到 Java 17，避免 "Inconsistent JVM-target compatibility" 报错
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
 }
 
 dependencies {
-    testImplementation 'junit:junit:4.12'
-    androidTestImplementation 'androidx.test:runner:1.1.1'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.1.1'
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.6.1"
 }
