@@ -266,6 +266,14 @@ class LostListState extends State<LostList> with SingleTickerProviderStateMixin 
         // 这个pagestorage可以保持页面位置
         key: PageStorageKey<String>(storageKey),
         controller: scrollController,
+        // ⚠️ 必须显式声明 AlwaysScrollableScrollPhysics，否则下拉刷新会"看心情"失效：
+        // RefreshIndicator 只在可滚动区域能被 overscroll（内容大于视口）时才响应，
+        // 而默认物理（Android=ClampingScrollPhysics）下 `shouldAcceptUserOffset`
+        // 对"内容没超出一屏且 offset==0"的列表直接返回 false ⇒ 手势根本不会被接收。
+        // 结果就是：一旦筛完只剩一两条，用户怎么拉都刷不出来。
+        // 官方文档 RefreshIndicator → Troubleshooting → "Refresh indicator does not show up"
+        // 明确要求这里配合 AlwaysScrollableScrollPhysics（它只放开"能否拖动"，不影响回弹手感）。
+        physics: const AlwaysScrollableScrollPhysics(),
         // 还有下一页时在末尾挂一个转圈项；滑到底自动加载，不再需要"加载更多"按钮
         itemCount: hasMore ? dogs.length + 1 : dogs.length,
         separatorBuilder: (BuildContext context, int i) => const Divider(),
