@@ -8,12 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_picker_plus/flutter_picker_plus.dart';
 import 'package:fluwx/fluwx.dart';
 import 'package:intl/intl.dart';
-import 'package:find_dog/common/constants.dart';
 import 'package:find_dog/common/request.dart';
+import 'package:find_dog/common/tianditu.dart';
 import 'package:find_dog/models/dog.dart';
 import 'package:find_dog/models/dog_lost.dart';
 import 'package:find_dog/models/location.dart';
 import 'package:find_dog/screens/lost/finish.dart';
+import 'package:find_dog/utils/coord_transform.dart';
 import 'package:find_dog/utils/validate.dart';
 import 'package:find_dog/widgets/form_image_picker.dart';
 
@@ -21,8 +22,6 @@ import 'detail.dart';
 
 // fluwx 6.x 用一个实例来调用（open 等）
 final Fluwx _fluwx = Fluwx();
-
-const String mapKey = Constants.amapWebKey;
 
 // 提交报告成功与否 返回到list决定是否刷新
 enum ReportAction { success, stop }
@@ -149,6 +148,31 @@ class LostReportState extends State<LostReport> {
         false;
   }
 
+  /// 拼出天地图地理编码要用的关键字。
+  ///
+  /// 天地图这个接口**只收一个 `keyWord`**，没有独立的城市参数（高德有 `city`），
+  /// 所以省/市/区得自己拼进去。
+  ///
+  /// 直辖市的省和市是同一个词（"上海市" + "上海市"），连着的重复项去重一下，
+  /// 免得拼出 "上海市上海市静安区…" 反而降低命中率。
+  String _geocodeKeyWord() {
+    final List<String> parts = <String>[
+      _regionProvince,
+      _regionCity,
+      _regionArea,
+      _locationName,
+    ];
+    final List<String> kept = <String>[];
+    for (final String part in parts) {
+      final String trimmed = part.trim();
+      if (trimmed.isEmpty || (kept.isNotEmpty && kept.last == trimmed)) {
+        continue;
+      }
+      kept.add(trimmed);
+    }
+    return kept.join();
+  }
+
   // 表单提交
   void _handleSubmitted() async {
     final FormState? form = _formKey.currentState;
@@ -179,28 +203,40 @@ class LostReportState extends State<LostReport> {
       );
       // 初始化api
       Request api = Request();
-      // 地理位置的说 ampa的原始请求
-      print(
-          "https://restapi.amap.com/v3/geocode/geo?key=$mapKey&address=$_locationName&city=$_regionCity");
-      Response? response;
+      // 地理编码：把"省市区 + 详细地址"换成经纬度。
+      // 原先走的是高德 v3/geocode/geo，现已换成天地图 geocoder。
+      //
+      // 先落成哨兵值：查不到坐标就照这个值提交，与替换前的行为保持一致
+      // （服务端会存成 0.0，map.dart 会把这种点判为"不可用"并给提示）。
+      locationLongitude = '0.0';
+      locationLatitude = '0.0';
       try {
-        response = await api.getDio().get(
-              "https://restapi.amap.com/v3/geocode/geo?key=$mapKey&address=$_locationName&city=$_regionCity",
+        final Response response = await api.getDio().getUri(
+              tiandituGeocoderUri(_geocodeKeyWord()),
             );
+        final dynamic data = response.data;
+        final dynamic location = data is Map ? data['location'] : null;
+        if (location is Map &&
+            location['lon'] != null &&
+            location['lat'] != null) {
+          // 天地图返回的 lon / lat 是**字符串**，不是数字
+          final double? wgsLat = double.tryParse('${location['lat']}');
+          final double? wgsLng = double.tryParse('${location['lon']}');
+          if (wgsLat != null && wgsLng != null) {
+            // 天地图用的是 WGS-84（CGCS2000），而库里历史坐标全是高德产的 GCJ-02。
+            // 为了不把两种坐标系混进同一列，入库前正算回 GCJ-02。
+            final GeoPoint gcj = wgs84ToGcj02(
+              (latitude: wgsLat, longitude: wgsLng),
+            );
+            locationLongitude = gcj.longitude.toString();
+            locationLatitude = gcj.latitude.toString();
+          }
+        }
       } catch (e) {
-        // print("有个错误啦");
-        print(e);
-      }
-      try {
-        final dynamic data = response?.data;
-        final String location = data['geocodes'][0]['location'];
-        print(location);
-        List<String> loc = location.split(",");
-        print(loc);
-        locationLongitude = loc[0];
-        locationLatitude = loc[1];
-      } catch (e) {
-        // 不处理了如果没正确地址
+        // 地理编码只是锦上添花：拿不到坐标不该挡住发布流程，
+        // 所以这里只记日志、继续用哨兵坐标提交。
+        // 注意不要打出完整请求 URL —— 那会把 tk 泄进日志。
+        debugPrint('天地图地理编码失败：$e');
       }
       // showInSnackBar('${person.name}\'s phone number is ${person.phoneNumber}');
       // 提交逻辑在这里处理
