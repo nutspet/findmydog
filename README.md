@@ -10,7 +10,53 @@
 
 # 更新
 
-原始代码写于0.9的Flutter，更新了gradle后，目前已经在最新的Dart 2.1和Flutter 1.1.9编译通过。
+## 2026-10：迁移到 Flutter 3.47.6 / Dart 3.13.5
+
+原始代码写于 Flutter 0.9，此前只升过 Gradle。本次做了一次完整的现代化迁移。
+
+**依赖**
+
+| 包 | 旧 | 新 |
+| --- | --- | --- |
+| dio | ^2.1.0 | ^5.11.1 |
+| flutter_picker | ^1.0.10 | 换成官方延续分支 flutter_picker_plus ^1.5.6 |
+| flutter_swiper | ^1.1.6 | 换成 card_swiper ^3.0.1 |
+| amap_base | ^0.3.4 | 删除（代码里从未 import） |
+| path_provider | ^0.5.0+1 | 删除（无直接引用） |
+| geolocator | ^5.x | ^14.1.1 |
+| webview_flutter | ^0.3.x | ^4.14.1 |
+| image_picker | ^0.6.x | ^1.2.4 |
+| fluwx | ^1.x | ^6.0.5 |
+| cached_network_image / intl / flutter_udid | 无 | ^4.0.4 / ^0.20.3 / ^4.1.6 |
+
+> dio 4.0 存在 **CVE-2021-31402**（High severity）。升级到 dio 5.x 后该告警消失。
+
+**代码**
+
+* 全面启用 Dart 3 空安全：字段给初值、`required` 取代 `@required`、`late` 用于 initState 中赋值的字段。
+* 弃用 API 替换：`RaisedButton`→`ElevatedButton`、`FlatButton`→`TextButton`、`OutlineButton`→`OutlinedButton`、`WillPopScope`→`PopScope`、`Form.onWillPop`→`canPop`+`onPopInvokedWithResult`、`WhitelistingTextInputFormatter`→`FilteringTextInputFormatter`、`AppBar.brightness`→`systemOverlayStyle`、`ScaffoldState.showSnackBar`→`ScaffoldMessenger`。
+* 插件 API 适配：dio 5 的 `DioException`/`Duration` 超时/`FormData.fromMap`/`MultipartFile`；geolocator 的静态 API 与 `LocationSettings`；webview_flutter 4 的 `WebViewController`+`WebViewWidget`；image_picker 1.x 的实例方法 + `XFile`；fluwx 6 的 `Fluwx()` 实例 + `open(target: MiniProgram(...))`。
+* 新增 `analysis_options.yaml`（flutter_lints 6）。
+
+**平台配置**
+
+* Android：AGP 3.2.1 → 9.1.0、Gradle 4.10.2 → 9.3.1、`jcenter()` → `mavenCentral()`、新增 `namespace`、compileSdk 28→36、minSdk 21→24、targetSdk 28→36、Java 17。`settings.gradle` 改用 Flutter Plugin Loader（旧写法依赖已被 Flutter 移除的 `.flutter-plugins`）；`MainActivity` 切到 v2 embedding；AndroidManifest 清掉 v1 残留并补 `exported` / `flutterEmbedding` / `NormalTheme`。
+* iOS：Podfile 重写为 `flutter_ios_podfile_setup` + `flutter_install_all_ios_pods`；最低版本 iOS 8.0 → **15.0**（Flutter 3.47 要求）；`LSApplicationQueriesSchemes` 补齐 fluwx 6 要求的 4 个 scheme。
+* `pubspec.yaml` 的 `version` 由 `1.0.0+1` 改为 `1.0.2+2`，与原先硬编码在 `android/app/build.gradle` 的 versionName/versionCode 对齐（现在以 pubspec 为唯一来源）。
+
+### 迁移后需要人工确认的点
+
+* **Android / iOS 的构建配置未经过真机构建验证**（开发机没有 JDK / Android SDK / Xcode），是按 Flutter 3.47 官方模板逐项对齐的，首次构建仍建议在本机跑一遍 `flutter build apk --debug` 和 `pod install`。
+* **机型覆盖范围收窄**：Android minSdk 21 → 24（不再支持 Android 5/6），iOS 8 → 15。这是 Flutter 3.47 的硬性要求，无法保留。
+* **微信 App ID 仍是占位符**：`lib/main.dart` 里 `registerApi(appId: "xxxxxxxxxxxxx")` 需要换成真实 App ID；iOS 侧还需要在 `Info.plist` 的 `CFBundleURLTypes` 里补一个 name 为 `weixin` 的 URL Type。
+* **发布签名**：`android/key.properties` 不在仓库里（见 .gitignore）。现在没有该文件时会自动回退到 debug 签名，正式发版前需要补上。
+* **iOS 版本号**仍硬编码在 `ios/Runner/Info.plist`（1.0.4 / 181218），没有改成 `$(FLUTTER_BUILD_NAME)`，以免上架版本号回退。
+* **未采用新的 SceneDelegate 生命周期**：Flutter 3.47 的模板已改为 scene-based（`UISceneStoryboardFile` + `SceneDelegate`），本工程仍是 `main.m` + `AppDelegate.m` 的传统方式，暂时可用，后续 Flutter 强制要求时需要迁移。
+* `lib/screens/planet/quick_start.dart`：原代码把 `javaScriptMode` 注释掉了（默认关闭 JS），而该 H5 页面是 React 单页应用，关闭 JS 必然白屏；本次已打开 JavaScript。
+
+## 历史更新
+
+原始代码写于 0.9 的 Flutter，更新了 gradle 后，在 Dart 2.1 和 Flutter 1.1.9 编译通过。
 
 # Flutter快速入门
 
