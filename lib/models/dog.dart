@@ -136,17 +136,48 @@ abstract class Dog {
   Dog();
 
   Dog.fromJson(Map<String, dynamic> json)
-      : color = DogColor[json['color']],
-        size = DogSize[json['size']],
-        breed = DogBreed[json['size']][json['breed']] {
-    // 初始化 补一个pic 这样有静态类型
-    List picJson = json["pic"];
-    //print(picJson);
-    picJson.forEach((e) {
-      // 做个兼容 dart 空的 map 会被转成 list
-      if (e is Map<String, dynamic>) {
-        pic.add(Pic.fromJson(e));
+      : color = _at(DogColor, json['color']),
+        size = _at(DogSize, json['size']),
+        breed = _breedOf(json['size'], json['breed']) {
+    // 初始化 补一个pic 这样有静态类型。
+    //
+    // 顺带做容错：pic 缺失 / 类型不对时退化成"没有图片"，
+    // 而不是让一条脏数据把整页列表打崩。
+    final Object? picJson = json["pic"];
+    if (picJson is List) {
+      for (final Object? e in picJson) {
+        // 做个兼容 dart 空的 map 会被转成 list
+        if (e is Map<String, dynamic>) {
+          pic.add(Pic.fromJson(e));
+        }
       }
-    });
+    }
+  }
+
+  /// 下标安全取值：越界 / 类型不符时退化为空串。
+  ///
+  /// 改造前这里是裸的 `DogSize[json['size']]` 这种写法，
+  /// 只要服务端出现一条越界记录，整个列表就会被打崩。
+  static String _at(List<String> table, Object? index) {
+    if (index is int && index >= 0 && index < table.length) {
+      return table[index];
+    }
+    return '';
+  }
+
+  /// 品种名（二维表，需要先定位体型再定位品种）。
+  ///
+  /// ⚠️ 这里必须做越界保护，不是杞人忧天 —— 线上实测：
+  /// 服务端 `size=1`（中型）实际存在 `breed = 0..16` 共 **17** 种，
+  /// 而本地 [DogBreed]`[1]` 只列了 **16** 种。
+  /// 直接写 `DogBreed[size][breed]` 一旦翻到"中型 + 第 17 种"的那几条记录
+  /// 就会抛 RangeError，`DogService.parseList` 整体失败，
+  /// 列表页直接变成"没有数据"（这几条记录是真实存在的，`size=1&breed=16` 实测 total=4）。
+  ///
+  /// 本地表缺的那个品种名无从考证，所以这里选择"退化成一个空品种名"，
+  /// 而不是让整页数据消失。
+  static String _breedOf(Object? size, Object? breed) {
+    if (size is! int || size < 0 || size >= DogBreed.length) return '';
+    return _at(DogBreed[size], breed);
   }
 }
