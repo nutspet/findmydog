@@ -54,6 +54,51 @@
 * **未采用新的 SceneDelegate 生命周期**：Flutter 3.47 的模板已改为 scene-based（`UISceneStoryboardFile` + `SceneDelegate`），本工程仍是 `main.m` + `AppDelegate.m` 的传统方式，暂时可用，后续 Flutter 强制要求时需要迁移。
 * `lib/screens/planet/quick_start.dart`：原代码把 `javaScriptMode` 注释掉了（默认关闭 JS），而该 H5 页面是 React 单页应用，关闭 JS 必然白屏；本次已打开 JavaScript。
 
+## 2026-10：底图从高德换成天地图（flutter_map）
+
+原先地图这块走的是高德的两个 HTTP 接口（静态图 `restapi.amap.com/v3/staticmap`、地理编码
+`restapi.amap.com/v3/geocode/geo`），现在整体换掉了。
+
+| 位置 | 旧 | 新 |
+| --- | --- | --- |
+| 展示（`lib/screens/lost/map.dart`） | 高德静态图（一张 600×600 的图） | `flutter_map` + 天地图矢量瓦片，可拖动缩放 |
+| 地理编码（`lib/screens/lost/report.dart`） | `restapi.amap.com/v3/geocode/geo` | `api.tianditu.gov.cn/geocoder` |
+| 新增依赖 | — | `flutter_map: ^8.3.2`、`latlong2: ^0.10.1` |
+
+**为什么是天地图 + flutter_map**：`flutter_map` 是 100% 纯 Dart 实现，没有 platform view，
+不需要地图 SDK、不需要原生注册，Android / iOS / Web 一套代码；天地图是国家平台，
+国内直连、无需翻墙，且有明确的免费额度政策（OSM 官方瓦片则**禁止**分发式 App 使用）。
+
+### ⚠️ 必须先申请天地图 tk，否则没有地图
+
+`lib/common/constants.dart` 里的 `Constants.tiandituTk` **默认是空的**。留空时地图区域会显示
+"未配置"提示（不是崩，也不是白图，就是一句明确的提示），地理编码则会被跳过、坐标落成 `0.0`。
+
+申请地址 <https://console.tianditu.gov.cn>（文档 <https://lbs.tianditu.gov.cn>）。两个坑：
+
+1. **「应用类型」选「服务端」（或「Android 平台」），不要选「浏览器端」。**
+   浏览器端类型会按 HTTP Referer 做白名单校验，而原生 App 根本不发 Referer，会直接被 403。
+2. **「服务类型」里要勾上"地图 API"（矢量底图 / 地名注记）和 WEB 服务 API 的"地理编码"。**
+
+拿到之后只改 `tiandituTk` 一行即可，瓦片 URL 和 geocoder 都会跟着走
+（集中在 `lib/common/tianditu.dart`）。
+
+### 坐标系：库里存 GCJ-02，只在渲染层转成 WGS-84
+
+这是这次替换里**唯一会静默算错**的地方——转换写错不会报错，只是标记点悄悄偏出去几百米。
+
+* 库里历史坐标是当年**高德 geocode** 产出的 **GCJ-02**；天地图按 **WGS-84（CGCS2000）** 出图。
+* 两者在中国境内的系统性偏移**实测 40 ~ 690 米**，东经 105° 附近最窄（最小 41 米出现在青海），
+  向东、向西逐渐变大；方向上是**恒向东**，但纬度方向可正可负。
+* 处理方式：**数据库一个字节都不动**，只在两处转换——渲染前 `gcj02ToWgs84`，
+  天地图 geocoder 的返回值入库前 `wgs84ToGcj02`。实现在 `lib/utils/coord_transform.dart`（纯 Dart）。
+
+### 顺手修掉的两个问题
+
+* `lib/screens/lost/map.dart` 里静态图 URL 的 key 是**硬编码的 `key=xxxxxxxxxx`**，
+  而 `Constants` 里那个 key 常量根本没被引用过——也就是说填了也无效。
+* `lib/screens/lost/report.dart` 用 `print` 把**带 key 的完整请求 URL** 打进了日志。
+
 ## 2026-10：列表页 BLoC 改造
 
 把 `xungou_x` 重构版里基于 **flutter_bloc** 的列表页交互移植了过来，改造范围只限列表页，视觉保持不变：
@@ -75,6 +120,7 @@ flutter test --reporter expanded
 | `test/widget_test.dart` | 模型字段映射 / 空安全兜底、`Validate.phone`、两个纯展示页面 |
 | `test/lost_list_page_test.dart` | 列表页首屏、滑到底翻页（追加非替换）、短列表下拉刷新、抽屉重置、附近 tab 失败分支、空态 / 业务失败 / HTTP 5xx、筛选栏文案 |
 | `test/dog_fetch_bloc_test.dart` | BLoC 状态机：重置落地、末页吞掉滚动事件、翻页追加、翻页失败保留旧数据、连击只发一个请求 |
+| `test/coord_transform_test.dart` | GCJ-02 ⇄ WGS-84 互转：境外不加偏、全网格往返残差、偏移量量级与方向、回归锚点；天地图 URL 的参数名 / 编码 / 占位符 / 缩放范围 |
 | `test/support/fake_http.dart` | 测试用的假 HTTP 适配器（挂到 `Request.getInstance().getDio().httpClientAdapter`，**不必为可测性改生产代码**） |
 
 未覆盖（有意为之）：网络图片分支（`CachedNetworkImage` 依赖原生插件）、真实 GPS、详情页 / 发布页。
@@ -102,7 +148,8 @@ flutter test --reporter expanded
 * 更新使用了Flutter 1.0以上版本，使用了google的webview控件，H5性能大幅提高，可以参考flutter 1.0的发布说明。
 * 多语言的问题可以参考main.dart，里面将日历控件改成了中文展示。
 * 微信分享利用了Fluwx控件，请在main.dart中fluwx.register改成你自己的appid。
-* 地图使用了高德的HTTP接口，请在使用地图的http连接切换成你自己的key，在/screens/lost/map.dart中。
+* 地图已从高德的 HTTP 接口换成 **flutter_map + 天地图**，需要自己去申请天地图 tk 并填到
+  `lib/common/constants.dart`（详见上面的「底图从高德换成天地图」一节）。
 * 两个月前的代码了，想到什么再补充进来。
 
 # Dart优点
@@ -115,7 +162,7 @@ flutter test --reporter expanded
 * 等等
 
 # TODO
-- [ ] 把高德http接口换成控件。
+- [x] 把高德http接口换成控件。（已换成 flutter_map + 天地图，见 2026-10 的更新）
 - [ ] 品类做到和寻狗小程序一样多。
 
 # 其他
